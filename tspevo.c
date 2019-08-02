@@ -47,7 +47,6 @@ Hints: What about finding a path from one solution to the other and choosing som
 //problem variables
 int N;
 double costs[MAXN][MAXN];
-double costs_v[MAXN * MAXN];
 
 typedef struct _individual{
     int *perm;
