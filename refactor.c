@@ -19,11 +19,17 @@ typedef struct _individual{
 individual best;
 
 // Function declarations
-void magic(int npops, int popsize, int indsize);
+void magic(int npops, int popsize, int indsize, int ngens, double mutation_rate);
 individual *newIndividual(individual *new, int indsize);
 void evalPopFitness(individual *population, int popsize, int indsize);
 double evalIndFitness(individual *ind, int indsize);
+
+void evolvePopulation(individual *population, int popsize, int indsize, double mutation_rate);
+void swapMutation(individual *ind, int indsize);
+int fit_cmp(const void *ls, const void *rs);
+
 void printIndividual(individual *ind, int indsize);
+
 
 int main(){
 
@@ -38,9 +44,12 @@ int main(){
     //parameters
     int popsize = 250;
     int npops = 50;
+    int ngens = 100;
+
+    double mutation_rate = 0.7;
 
     // call tsp evo
-    magic(npops, popsize, N);
+    magic(npops, popsize, N, ngens, mutation_rate);
 
     return 0;
 }
@@ -48,37 +57,66 @@ int main(){
 /**
  * Evolutionary meta-heuristic algorithm for evolving solutions to the TSP problem.
  */
-void magic(int npops, int popsize, int indsize) {
+void magic(
+        int npops, int popsize, int indsize, int ngens,
+        double mutation_rate
+    ) {
 
+    // Keep a reference of the best individual ever.
+    individual best;
+
+    // Get a good randomness for the algorithm
     srand(clock());
 
+    // Measure time for statistics
     clock_t start, finish;
     start = clock();
 
-    individual *populations[npops];
-
-    //generate initial population
+    //generate initial populations
+    individual **populations = (individual **)malloc(npops * sizeof(individual *));
     for (int p = 0; p < npops; p++) {
         individual *population = (individual *)malloc(popsize * sizeof(individual));
-
         for (int i = 0; i < popsize; i++) {
             newIndividual(population + i, indsize);
         }
-        
         evalPopFitness(population, popsize, indsize);
         populations[p] = population;
     }
-
     best = populations[0][0];
-    printIndividual(&best, indsize);
 
+    // generations loop
+    for (int gen = 1; gen <= ngens; gen++) {
+
+        // Find the best individual among all populations for reference.
+        for(int p = 1; p < npops; p++){
+            if(populations[p][0].fitness < best.fitness){
+                best = populations[p][0];
+            }
+        }
+
+        // Evolve the populations
+        for (int p = 0; p < npops; p++) {
+            evolvePopulation(populations[p], popsize, indsize, mutation_rate);
+        }
+
+
+    }
+
+#ifdef V
+    printf("Best: ");
+    printIndividual(&best, indsize);
+#endif
+
+    // Free all the allocated memory for easier mem leak validation.
     for (int p = 0; p < npops; p++) {
         for (int i = 0; i < popsize; i++) {
             free(populations[p][i].perm);
         }
         free(populations[p]);
     }
+    free(populations);
 
+    // Time statistics
     finish = clock();
     printf("Took %lf seconds\n", (double)((finish - start)/(double)CLOCKS_PER_SEC) );
 }
@@ -142,6 +180,57 @@ double evalIndFitness(individual *ind, int indsize) {
             fitness += costs[ind->perm[i]][ind->perm[0]];
     }
     return fitness;
+}
+
+/**
+ * Performs one generation of evolution on a given population.
+ */
+void evolvePopulation(individual *population, int popsize, int indsize, double mutation_rate) {
+
+    // Mutate the population
+    for (int i = 0; i < popsize; i++) {
+        if ((rand() % 10000)/10000.0 <= mutation_rate) {
+            swapMutation(&population[i], indsize);
+            evalIndFitness(&population[i], indsize);
+        }
+    }
+
+    // Sort individuals by fitness
+    qsort(population, popsize, sizeof(individual), fit_cmp);
+}
+
+/**
+ * Mutates an individual by swaping two of its positions.
+ * 
+ * @param ind     The individual to mutate.
+ * @param indsize The size of the individual.
+ */
+void swapMutation(individual *ind, int indsize) {
+    int i1 = rand() % indsize;
+    
+    int i2 = rand() % indsize;
+    while (i2 == i1) {
+        i2 = rand() % indsize;
+    }
+
+    int tmp = ind->perm[i1];
+    ind->perm[i1] = ind->perm[i2];
+    ind->perm[i2] = tmp;
+}
+
+/**
+ * Compares the fitness of two individuals.
+ */
+int fit_cmp(const void *ls, const void *rs) {
+    individual *a = (individual *)ls;
+    individual *b = (individual *)rs;
+
+    if (a->fitness < b->fitness)
+        return -1;
+    else if (a->fitness > b->fitness)
+        return 1;
+    else
+        return 0;
 }
 
 /**
