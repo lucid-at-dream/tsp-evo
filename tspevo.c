@@ -42,6 +42,7 @@ Hints: What about finding a path from one solution to the other and choosing som
 #define cona(x) printf("cona--%d\n", x);
 
 #define MAXN 1001
+#define VERBOSE
 
 //problem variables
 int N;
@@ -72,6 +73,15 @@ individual *copyIndividual(individual *old, int length);
 void deleteIndividual(individual *i);
 individual **evolvePopulation(individual ** population, double mutation_rate, double crossover_rate, int popsize, int tournamentSize, int eliteSize);
 
+void magic(
+    int ngens,
+    double mutation_rate, double crossover_rate, double migration_rate, double migrationProb,
+    double replacementProb, double replacementInc, double replacementProbMax,
+    int popsize, int tournamentSize, int eliteSize,
+    int npops,
+    int maxgrad0count
+);
+
 int int_cmp(const void *a, const void *b) {
     int _a = *(int *)a;
     int _b = *(int *)b;
@@ -90,23 +100,57 @@ int main(){
 
     //parameters
     int ngens = 2000;
-    double mutation_rate = 0.2;
-    double crossover_rate = 0.7;
-    double migration_rate = 0.01;
-    double migrationProb = 0.2;
+    double mutation_rate = 0.6;
+    double crossover_rate = 0.3;
+    double migration_rate = 0.2;
+    double migrationProb = 0.1;
     double replacementProb = 0;
-    double replacementInc = 0.1/(double)ngens;
+    double replacementInc = 0.0002;
     double replacementProbMax = 0.15;
-    int popsize = 100;
-    int tournamentSize = 3;
-    int eliteSize = 1;
-    int npops = 20;
-
+    int popsize = 250;
+    int tournamentSize = 5;
+    int eliteSize = 2;
+    int npops = 50;
     int maxgrad0count = 200;
+
+    magic(
+        ngens,
+        mutation_rate, crossover_rate,
+        migration_rate, migrationProb,
+        replacementProb, replacementInc, replacementProbMax, 
+        popsize, tournamentSize, eliteSize, 
+        npops,
+        maxgrad0count
+    );
+
+    return 0;
+}
+
+void magic(
+    int ngens,
+    double mutation_rate,
+    double crossover_rate,
+    double migration_rate,
+    double migrationProb,
+    double replacementProb,
+    double replacementInc,
+    double replacementProbMax,
+    int popsize,
+    int tournamentSize,
+    int eliteSize,
+    int npops,
+    int maxgrad0count
+) {
+
+    int i,j;
+    double cost;
 
     srand(clock());
 
+#ifdef VERBOSE
     printf("starting the algorithm\n");
+#endif
+
     clock_t start, finish;
     start = clock();
 
@@ -148,7 +192,9 @@ int main(){
         if(aux->fitness < best->fitness) {
             double prev_best_fitness = best->fitness;
             best = aux;
+#ifdef VERBOSE
             printf("[%d] best of best: %.4lf (-%.4lf)\n", best->fitness, prev_best_fitness);
+#endif
         }
 
         if( fabs(prev - aux->fitness) <= 0.00001 )
@@ -176,7 +222,7 @@ int main(){
         }
 
         //perform the migrations
-        if( (rand() % 10000)/10000.0 <= mutation_rate ){
+        if( (rand() % 10000)/10000.0 <= migration_rate ){
             int p1 = rand() % npops,
                 p2 = rand() % npops;
             while(p1 == p2)
@@ -193,7 +239,10 @@ int main(){
         }
 
         gen_finish = clock();
+
+#ifdef VERBOSE
         printf("[%d] %lf seconds\n", gen, (double)((gen_finish - gen_start)/(double)CLOCKS_PER_SEC) );
+#endif
     }
 
     //fetch the best individuals
@@ -203,7 +252,9 @@ int main(){
 
     finish = clock();
 
+#ifdef VERBOSE
     printf("the algorithm ran in %lf seconds\n", (double)((finish - start)/(double)CLOCKS_PER_SEC) );
+#endif
 
     int pos[npops];
     memset(pos, 0, sizeof(int)*npops);
@@ -211,22 +262,27 @@ int main(){
     int minpop = 0;
     individual *min;
 
-    for(i=0; i<5; i++){
-        min = populations[0][pos[0]];
+#ifdef VERBOSE
+    for(i=0; i<npops; i++){
+
+        for(j=0; pos[j] < 0; j++);
+
+        min = populations[0][pos[j]];
         for(p=0; p<npops; p++){
+            if (pos[p] < 0)
+                continue;
             if(populations[p][pos[p]]->fitness < min->fitness){
                 min = populations[p][pos[p]];
                 minpop = p;
             }
         }
-        pos[minpop]++;
+        pos[minpop] = -1;
         printIndividual(min, N);
     }
 
-    printf("best of best:\n");
-    printIndividual(best,N);
-
-    return 0;
+    printf("best of best: ");
+    printIndividual(best, N);
+#endif
 }
 
 individual **evolvePopulation(individual ** population,
@@ -303,6 +359,8 @@ individual **survivors_elitism(individual **elite, individual **offspring, int e
     for(i=0; i<popsize-eliteSize; i++){
         population[eliteSize + i] = offspring[i];
     }
+
+    qsort(population, popsize, sizeof(individual *), fit_cmp);
 
     return population;
 }
