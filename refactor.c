@@ -19,13 +19,19 @@ typedef struct _individual{
 individual best;
 
 // Function declarations
-void magic(int npops, int popsize, int indsize, int ngens, double mutation_rate);
+
+void magic(
+        int npops, int popsize, int indsize, int ngens, 
+        double swap_mutation_rate, double inversion_mutation_rate
+);
+
 individual *newIndividual(individual *new, int indsize);
 void evalPopFitness(individual *population, int popsize, int indsize);
 double evalIndFitness(individual *ind, int indsize);
 
-void evolvePopulation(individual *population, int popsize, int indsize, double mutation_rate);
+void evolvePopulation(individual *population, int popsize, int indsize, double swap_mutation_rate, double inversion_mutation_rate);
 void swapMutation(individual *ind, int indsize);
+void subsequenceInversionMutation(individual *ind, int indsize);
 int fit_cmp(const void *ls, const void *rs);
 
 void printIndividual(individual *ind, int indsize);
@@ -41,15 +47,23 @@ int main(){
         costs[i][j] = cost;
     }
 
-    //parameters
+
+    // ===== Parameterization =====
+
+    // How much machinery for heavy lifting?
     int popsize = 250;
     int npops = 50;
     int ngens = 100;
 
-    double mutation_rate = 0.7;
+    // How much randomness?
+    double swap_mutation_rate = 0.7;
+    double inversion_mutation_rate = 0.7;
+
+    // ===== Parameterization =====
+
 
     // call tsp evo
-    magic(npops, popsize, N, ngens, mutation_rate);
+    magic(npops, popsize, N, ngens, swap_mutation_rate, inversion_mutation_rate);
 
     return 0;
 }
@@ -59,7 +73,7 @@ int main(){
  */
 void magic(
         int npops, int popsize, int indsize, int ngens,
-        double mutation_rate
+        double swap_mutation_rate, double inversion_mutation_rate
     ) {
 
     // Keep a reference of the best individual ever.
@@ -96,7 +110,7 @@ void magic(
 
         // Evolve the populations
         for (int p = 0; p < npops; p++) {
-            evolvePopulation(populations[p], popsize, indsize, mutation_rate);
+            evolvePopulation(populations[p], popsize, indsize, swap_mutation_rate, inversion_mutation_rate);
         }
 
 
@@ -185,14 +199,20 @@ double evalIndFitness(individual *ind, int indsize) {
 /**
  * Performs one generation of evolution on a given population.
  */
-void evolvePopulation(individual *population, int popsize, int indsize, double mutation_rate) {
+void evolvePopulation(individual *population, int popsize, int indsize, double swap_mutation_rate, double inversion_mutation_rate) {
 
     // Mutate the population
     for (int i = 0; i < popsize; i++) {
-        if ((rand() % 10000)/10000.0 <= mutation_rate) {
+        
+        if ((rand() % 10000)/10000.0 <= swap_mutation_rate) {
             swapMutation(&population[i], indsize);
-            evalIndFitness(&population[i], indsize);
         }
+
+        if ((rand() % 10000)/10000.0 <= inversion_mutation_rate) {
+            subsequenceInversionMutation(&population[i], indsize);
+        }
+
+        evalIndFitness(&population[i], indsize);
     }
 
     // Sort individuals by fitness
@@ -216,6 +236,24 @@ void swapMutation(individual *ind, int indsize) {
     int tmp = ind->perm[i1];
     ind->perm[i1] = ind->perm[i2];
     ind->perm[i2] = tmp;
+}
+
+/**
+ * Mutates an individual by inverting a subsection of the permutation.
+ */
+void subsequenceInversionMutation(individual *ind, int indsize) {
+    int range = rand() % indsize;
+    int start = rand() % (indsize - range);
+
+    int tmp, i, count = 0;
+    for (i = start; i < start + ceil(range / 2.0); i++, count++) {
+        int i1 = i;
+        int i2 = start + range - count;
+        
+        tmp = ind->perm[i1];
+        ind->perm[i1] = ind->perm[i2];
+        ind->perm[i2] = tmp;
+    }
 }
 
 /**
