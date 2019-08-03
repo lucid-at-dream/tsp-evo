@@ -22,14 +22,20 @@ individual best;
 
 void magic(
         int npops, int popsize, int indsize, int ngens, 
-        double swap_mutation_rate, double inversion_mutation_rate
+        double swap_mutation_rate, double inversion_mutation_rate,
+        int elitesize
 );
 
 individual *newIndividual(individual *new, int indsize);
 void evalPopFitness(individual *population, int popsize, int indsize);
 double evalIndFitness(individual *ind, int indsize);
 
-void evolvePopulation(individual *population, int popsize, int indsize, double swap_mutation_rate, double inversion_mutation_rate);
+void evolvePopulation(
+    individual *population, int popsize, int indsize, 
+    double swap_mutation_rate, double inversion_mutation_rate, 
+    int elitesize
+);
+
 void swapMutation(individual *ind, int indsize);
 void subsequenceInversionMutation(individual *ind, int indsize);
 int fit_cmp(const void *ls, const void *rs);
@@ -53,17 +59,19 @@ int main(){
     // How much machinery for heavy lifting?
     int popsize = 250;
     int npops = 50;
-    int ngens = 100;
+    int ngens = 1000;
 
     // How much randomness?
-    double swap_mutation_rate = 0.7;
-    double inversion_mutation_rate = 0.7;
+    double swap_mutation_rate = 0.3;
+    double inversion_mutation_rate = 0.3;
+
+    // How much not randomness?
+    int elitesize = 10;
 
     // ===== Parameterization =====
 
-
     // call tsp evo
-    magic(npops, popsize, N, ngens, swap_mutation_rate, inversion_mutation_rate);
+    magic(npops, popsize, N, ngens, swap_mutation_rate, inversion_mutation_rate, elitesize);
 
     return 0;
 }
@@ -73,7 +81,8 @@ int main(){
  */
 void magic(
         int npops, int popsize, int indsize, int ngens,
-        double swap_mutation_rate, double inversion_mutation_rate
+        double swap_mutation_rate, double inversion_mutation_rate,
+        int elitesize
     ) {
 
     // Keep a reference of the best individual ever.
@@ -110,16 +119,17 @@ void magic(
 
         // Evolve the populations
         for (int p = 0; p < npops; p++) {
-            evolvePopulation(populations[p], popsize, indsize, swap_mutation_rate, inversion_mutation_rate);
+            evolvePopulation(populations[p], popsize, indsize, swap_mutation_rate, inversion_mutation_rate, elitesize);
         }
 
-
-    }
-
 #ifdef V
-    printf("Best: ");
-    printIndividual(&best, indsize);
+        printf("Best: ");
+        printIndividual(populations[0] + 5, indsize);
+
+        printf("Best: ");
+        printIndividual(&best, indsize);
 #endif
+    }
 
     // Free all the allocated memory for easier mem leak validation.
     for (int p = 0; p < npops; p++) {
@@ -173,7 +183,7 @@ individual *newIndividual(individual *new, int indsize) {
 void evalPopFitness(individual *population, int popsize, int indsize) {
     int i;
     for (i = 0; i < popsize; i++) {
-        population[i].fitness = evalIndFitness(&population[i], indsize);
+        population[i].fitness = evalIndFitness(&(population[i]), indsize);
     }
 }
 
@@ -199,21 +209,25 @@ double evalIndFitness(individual *ind, int indsize) {
 /**
  * Performs one generation of evolution on a given population.
  */
-void evolvePopulation(individual *population, int popsize, int indsize, double swap_mutation_rate, double inversion_mutation_rate) {
+void evolvePopulation(
+        individual *population, int popsize, int indsize, 
+        double swap_mutation_rate, double inversion_mutation_rate,
+        int elitesize
+    ) {
 
     // Mutate the population
-    for (int i = 0; i < popsize; i++) {
+    for (int i = elitesize; i < popsize; i++) {
         
         if ((rand() % 10000)/10000.0 <= swap_mutation_rate) {
-            swapMutation(&population[i], indsize);
+            swapMutation(&(population[i]), indsize);
         }
 
         if ((rand() % 10000)/10000.0 <= inversion_mutation_rate) {
-            subsequenceInversionMutation(&population[i], indsize);
+            subsequenceInversionMutation(&(population[i]), indsize);
         }
-
-        evalIndFitness(&population[i], indsize);
     }
+
+    evalPopFitness(population, popsize, indsize);
 
     // Sort individuals by fitness
     qsort(population, popsize, sizeof(individual), fit_cmp);
