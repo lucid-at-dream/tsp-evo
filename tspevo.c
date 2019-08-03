@@ -11,10 +11,12 @@ TODO:
 #include <string.h>
 #include <math.h>
 #include <time.h>
-#include <pthread.h> 
+#include <sys/time.h>
+#include "worker_pool.h"
 
 #define MAXN 1001
 #define V
+#define MULTI_THREAD 4
 
 // problem configuration
 double costs[MAXN][MAXN];
@@ -55,13 +57,24 @@ typedef struct _tspcfg {
     double crossover_rate;
     double population_migration_rate;
     double individual_migration_rate;
+
+    // Other, helper structures
+    worker_pool *thread_pool;
 } tspcfg;
+
+typedef struct _evo_job {
+    individual **populations;
+    individual **nextpops;
+    int start;
+    int end;
+    tspcfg *cfg;
+} evo_job;
 
 individual best;
 
 // Function declarations
 
-void magic(tspcfg *cfg);
+individual magic(tspcfg *cfg);
 
 individual **initializePopulations(int npops, int popsize, int indsize);
 individual *newIndividual(individual *new, int indsize);
@@ -69,6 +82,7 @@ void shuffle(int *array, int size);
 void evalPopFitness(individual *population, int popsize, int indsize);
 double evalIndFitness(individual *ind, int indsize);
 
+void popEvolutionThreadPoolWrapper(void *_job);
 void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg);
 
 couple tournament(int tsize, individual *population, int popsize);
@@ -99,9 +113,9 @@ int main(){
     config.indsize = N;
 
     // How much machinery for heavy lifting?
-    config.popsize = 250;
-    config.npops = 50;
-    config.ngens = 10000;
+    config.popsize = 50;
+    config.npops = 2500;
+    config.ngens = 15;
 
     // How much iterations without improvements before throwing the towel?
     config.maxgrad0count = N*2;
@@ -122,8 +136,22 @@ int main(){
 
     // ===== Parameterization =====
 
+    // Other helpder structures
+#ifdef MULTI_THREAD
+    config.thread_pool = pool_new(MULTI_THREAD, popEvolutionThreadPoolWrapper);
+    pool_start(config.thread_pool);
+#endif
+
     // call tsp evo
-    magic(&config);
+    individual best = magic(&config);
+
+    // Free up the thread pool resources
+#ifdef MULTI_THREAD
+    pool_stop(config.thread_pool);
+    pool_del(config.thread_pool);
+#endif
+
+    free(best.perm);
 
     return 0;
 }
@@ -131,38 +159,42 @@ int main(){
 /**
  * Evolutionary meta-heuristic algorithm for evolving solutions to the TSP problem.
  */
-void magic(tspcfg *cfg) {
+individual magic(tspcfg *cfg) {
 
     // Keep a reference of the best individual ever.
     individual best;
+    best.perm = (int *)malloc(cfg->indsize * sizeof(int));
 
     // Get a good randomness for the algorithm
     srand(clock());
 
     // Measure time for statistics
-    clock_t start, finish;
-    start = clock();
+    struct timeval tval_start, tval_finish, tval_whole_result;
+    gettimeofday(&tval_start, NULL);
 
     //generate initial populations
     individual **populations = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize);
     individual **nextpops = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize);
 
-    best = populations[0][0];
+    best.fitness = populations[0][0].fitness;
 
     // generations loop
     int grad0count = 0;
     for (int gen = 1; gen <= cfg->ngens; gen++) {
 
 #ifdef V
-        clock_t gen_start, gen_finish;
-        gen_start = clock();
+        struct timeval tval_gen_start, tval_gen_finish, tval_gen_result;
+        gettimeofday(&tval_gen_start, NULL);
 #endif
 
         // Find the best individual among all populations for reference.
         double prev_best = best.fitness;
-        for(int p = 1; p < cfg->npops; p++){
-            if(populations[p][0].fitness < best.fitness){
-                best = populations[p][0];
+        for (int p = 1; p < cfg->npops; p++) {
+            if (populations[p][0].fitness < best.fitness) {
+                best.fitness = populations[p][0].fitness;
+                for (int j = 0; j < cfg->indsize; j++) {
+                    best.perm[j] = populations[p][0].perm[j];
+                }
             }
         }
 
@@ -176,9 +208,26 @@ void magic(tspcfg *cfg) {
         }
 
         // Evolve the populations
+#ifdef MULTI_THREAD
+        evo_job jobs[cfg->npops];
+
+        int step = cfg->npops / cfg->thread_pool->num_threads / 2;
+        //int step = 3;
+
+        for (int p = 0; p < cfg->npops; p += step) {
+            jobs[p].cfg = cfg;
+            jobs[p].populations = populations;
+            jobs[p].nextpops = nextpops;
+            jobs[p].start = p;
+            jobs[p].end = p + step;
+            pool_add_work(cfg->thread_pool, &(jobs[p]));
+        }
+        pool_await_empty_queue(cfg->thread_pool);
+#else
         for (int p = 0; p < cfg->npops; p++) {
             evolvePopulation(populations[p], nextpops[p], cfg);
         }
+#endif
 
         //perform migrations between populations
         if ((rand() % 10000)/10000.0 <= cfg->population_migration_rate) {
@@ -220,8 +269,9 @@ void magic(tspcfg *cfg) {
         nextpops = tmp;
 
 #ifdef V
-        gen_finish = clock();
-        printf("[%04d] Took %lf seconds\n", gen, (double)((gen_finish - gen_start)/(double)CLOCKS_PER_SEC) );
+        gettimeofday(&tval_gen_finish, NULL);
+        timersub(&tval_gen_finish, &tval_gen_start, &tval_gen_result);
+        printf("Took: %ld.%06ld seconds\n", (long int)tval_gen_result.tv_sec, (long int)tval_gen_result.tv_usec);
         printf("[%04d] Best: %lf\n", gen, best.fitness);
 #endif
     }
@@ -236,8 +286,11 @@ void magic(tspcfg *cfg) {
     free_the_world(nextpops, cfg->npops, cfg->popsize);
 
     // Time statistics
-    finish = clock();
-    printf("Took %lf seconds\n", (double)((finish - start)/(double)CLOCKS_PER_SEC) );
+    gettimeofday(&tval_finish, NULL);
+    timersub(&tval_finish, &tval_start, &tval_whole_result);
+    printf("Took: %ld.%06ld seconds\n", (long int)tval_whole_result.tv_sec, (long int)tval_whole_result.tv_usec);
+
+    return best;
 }
 
 /**
@@ -326,15 +379,12 @@ double evalIndFitness(individual *ind, int indsize) {
     return fitness;
 }
 
-void *popEvolutionWrapper(void *vargp) {
-} 
-   
-void evolveAllPopulations(individual **populations, individual **nextpops, tspcfg *cfg) 
-{
-    int numthreads = 8;
-    pthread_t thread_id;
-    pthread_create(&thread_id, NULL, popEvolutionWrapper, NULL); 
-    pthread_join(thread_id, NULL);
+void popEvolutionThreadPoolWrapper(void *_job) {
+    evo_job *job = (evo_job *)_job;
+
+    for (int i = job->start; i < job->end && i < job->cfg->npops; i++) {
+        evolvePopulation(job->populations[i], job->nextpops[i], job->cfg);
+    }
 }
 
 /**
@@ -411,11 +461,18 @@ couple tournament(int tsize, individual *population, int popsize) {
         individuals[i] = &(population[idx]);
     }
 
-    qsort(individuals, tsize, sizeof(individual *), fit_cmp_ptr);
+    double max_val = 0;
+    for (int i = 1; i < tsize; i++) {
+        max_val += individuals[i]->fitness;
+    }
+
+    int i1 = rand() % tsize;
+    int i2 = rand() % tsize;
+    while (i2 == i1) i2 = rand() % tsize;
 
     couple parents;
-    parents.a = individuals[0];
-    parents.b = individuals[1];
+    parents.a = individuals[i1];
+    parents.b = individuals[i2];
 
     return parents;
 }

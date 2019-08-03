@@ -10,8 +10,10 @@ typedef struct _worker_pool {
     pthread_t *threads;
     queue *work_queue;
     volatile char stop;
+    char idle;
 
     pthread_mutex_t queue_mutex;
+    pthread_cond_t  await_idle_cond;
     pthread_cond_t  await_work_cond;
     pthread_cond_t  await_finish_cond;
 } worker_pool;

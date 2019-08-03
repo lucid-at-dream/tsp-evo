@@ -10,12 +10,17 @@ void *worker_loop(void *args) {
     {
         // Wait for the job
         pthread_mutex_lock(&(pool->queue_mutex));
-        while (!pool->stop && pool->work_queue->size <= 0) { // If there's no work and we shouldn't stop: wait.
+
+        pool->idle += 1;
+        pthread_cond_signal(&(pool->await_idle_cond));
+
+        while (pool->work_queue->size <= 0 && !pool->stop) { // If there's no work and we shouldn't stop: wait.
             pthread_cond_wait(&(pool->await_work_cond), &(pool->queue_mutex));
         }
 
         // Get the job
         void *job = queue_pop(pool->work_queue);
+        pool->idle -= 1;
 
         // Signal changes to the queue
         pthread_cond_signal(&(pool->await_finish_cond));
@@ -50,6 +55,7 @@ worker_pool *pool_new(int num_threads, void (*do_work)(void *)) {
     pool->work_queue = queue_new();
     pool->stop = 0;
     pthread_mutex_init(&(pool->queue_mutex), NULL);
+    pthread_cond_init(&(pool->await_idle_cond), NULL);
     pthread_cond_init(&(pool->await_work_cond), NULL);
     pthread_cond_init(&(pool->await_finish_cond), NULL);
     return pool;
@@ -82,6 +88,9 @@ void pool_await_empty_queue(worker_pool *pool) {
     pthread_mutex_lock(&(pool->queue_mutex));
     while(pool->work_queue->size > 0) {
         pthread_cond_wait(&(pool->await_finish_cond), &(pool->queue_mutex));
+    }
+    while(pool->idle < pool->num_threads) {
+        pthread_cond_wait(&(pool->await_idle_cond), &(pool->queue_mutex));
     }
     pthread_mutex_unlock(&(pool->queue_mutex));
 }
