@@ -21,7 +21,8 @@ individual best;
 // Function declarations
 
 void magic(
-        int npops, int popsize, int indsize, int ngens, 
+        int npops, int popsize, int indsize, int ngens,
+        int maxgrad0count,
         double swap_mutation_rate, double inversion_mutation_rate,
         int elitesize
 );
@@ -57,21 +58,24 @@ int main(){
     // ===== Parameterization =====
 
     // How much machinery for heavy lifting?
-    int popsize = 250;
-    int npops = 50;
-    int ngens = 1000;
+    int popsize = 2500;
+    int npops = 100;
+    int ngens = 2000;
+
+    // How much iterations without improvements before throwing the towel?
+    int maxgrad0count = 50;
 
     // How much randomness?
     double swap_mutation_rate = 0.3;
     double inversion_mutation_rate = 0.3;
 
     // How much not randomness?
-    int elitesize = 10;
+    int elitesize = 50;
 
     // ===== Parameterization =====
 
     // call tsp evo
-    magic(npops, popsize, N, ngens, swap_mutation_rate, inversion_mutation_rate, elitesize);
+    magic(npops, popsize, N, ngens, maxgrad0count, swap_mutation_rate, inversion_mutation_rate, elitesize);
 
     return 0;
 }
@@ -81,6 +85,7 @@ int main(){
  */
 void magic(
         int npops, int popsize, int indsize, int ngens,
+        int maxgrad0count,
         double swap_mutation_rate, double inversion_mutation_rate,
         int elitesize
     ) {
@@ -108,12 +113,23 @@ void magic(
     best = populations[0][0];
 
     // generations loop
+    int grad0count = 0;
     for (int gen = 1; gen <= ngens; gen++) {
 
         // Find the best individual among all populations for reference.
+        double prev_best = best.fitness;
         for(int p = 1; p < npops; p++){
             if(populations[p][0].fitness < best.fitness){
                 best = populations[p][0];
+            }
+        }
+
+        if (best.fitness < prev_best) {
+            grad0count = 0;
+        } else {
+            grad0count++;
+            if (grad0count > maxgrad0count) {
+                break;
             }
         }
 
@@ -123,13 +139,14 @@ void magic(
         }
 
 #ifdef V
-        printf("Best: ");
-        printIndividual(populations[0] + 5, indsize);
-
-        printf("Best: ");
-        printIndividual(&best, indsize);
+        printf("[%04d] Best: %lf\n", gen, best.fitness);
 #endif
     }
+
+#ifdef V
+    printf("Best: ");
+    printIndividual(&best, indsize);
+#endif
 
     // Free all the allocated memory for easier mem leak validation.
     for (int p = 0; p < npops; p++) {
