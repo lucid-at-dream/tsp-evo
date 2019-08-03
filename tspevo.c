@@ -36,7 +36,7 @@ individual best;
 void magic(
         int npops, int popsize, int indsize, int ngens,
         int maxgrad0count,
-        double swap_mutation_rate, double inversion_mutation_rate,
+        double swap_mutation_rate, double inversion_mutation_rate, double individual_replacement_rate,
         int elitesize,
         int tournament_size, double crossover_rate,
         double population_migration_rate, double individual_migration_rate
@@ -44,6 +44,7 @@ void magic(
 
 individual **initializePopulations(int npops, int popsize, int indsize);
 individual *newIndividual(individual *new, int indsize);
+void shuffle(int *array, int size);
 void evalPopFitness(individual *population, int popsize, int indsize);
 double evalIndFitness(individual *ind, int indsize);
 
@@ -88,6 +89,7 @@ int main(){
     // How much randomness?
     double swap_mutation_rate = 0.15;
     double inversion_mutation_rate = 0.15;
+    double individual_replacement_rate = 0.01;
 
     // How much not randomness?
     int elitesize = 3;
@@ -104,7 +106,7 @@ int main(){
     magic(
         npops, popsize, N,
         ngens, maxgrad0count,
-        swap_mutation_rate, inversion_mutation_rate,
+        swap_mutation_rate, inversion_mutation_rate, individual_replacement_rate,
         elitesize, tournament_size,
         crossover_rate, population_migration_rate, individual_migration_rate
     );
@@ -118,7 +120,7 @@ int main(){
 void magic(
         int npops, int popsize, int indsize, int ngens,
         int maxgrad0count,
-        double swap_mutation_rate, double inversion_mutation_rate,
+        double swap_mutation_rate, double inversion_mutation_rate, double individual_replacement_rate,
         int elitesize,
         int tournament_size, double crossover_rate,
         double population_migration_rate, double individual_migration_rate
@@ -186,13 +188,29 @@ void magic(
                 p2 = rand() % npops;
 
             for (int k=0; k<popsize; k++) {
-                if ((rand() % 10000)/10000.0 <= individual_migration_rate) {
+                if ((rand() % 10000)/10000.0 <= individual_migration_rate * log(gen) / log(2)) {
                     int ind2 = rand() % popsize;
                     individual tmp = populations[p1][k];
                     populations[p1][k] = populations[p2][ind2];
                     populations[p2][ind2] = tmp;
                 }
             }
+        }
+
+        // Replace some individuals randomly
+        for (int p = 0; p < npops; p++) {
+            for (int i = elitesize; i < popsize; i++) {
+                if ((rand() % 10000) / 10000.0 < individual_replacement_rate) {
+                    shuffle(populations[p][i].perm, indsize);
+                    evalIndFitness(&(populations[p][i]), indsize);
+                }
+            }
+        }
+
+        // Evaluate the next population's fitness and sort the individuals by fitness
+        for (int p = 0; p < npops; p++) {
+            evalPopFitness(nextpops[p], popsize, indsize);
+            qsort(nextpops[p], popsize, sizeof(individual), fit_cmp);
         }
 
         // Swap nextpops with populations for double buffering (i.e. avoid memory allocation overhead).
@@ -260,18 +278,24 @@ individual *newIndividual(individual *new, int indsize) {
     for (int i = 0; i < indsize; i++) {
         new->perm[i] = i;
     }
-
-    // Make 2*N swaps for randomization
-    int tmp, i1, i2;
-    for (int i = 0; i < 2 * indsize; i++) {
-        i1 = rand() % indsize;
-        i2 = rand() % indsize;
-        tmp = new->perm[i1];
-        new->perm[i1] = new->perm[i2];
-        new->perm[i2] = tmp;
-    }
+    
+    shuffle(new->perm, indsize);
 
     return new;
+}
+
+/**
+ * Makes 2*N swaps on an array for randomization
+ */
+void shuffle(int *array, int size) {
+    int tmp, i1, i2;
+    for (int i = 0; i < 2 * size; i++) {
+        i1 = rand() % size;
+        i2 = rand() % size;
+        tmp = array[i1];
+        array[i1] = array[i2];
+        array[i2] = tmp;
+    }
 }
 
 /**
@@ -361,10 +385,6 @@ void evolvePopulation(
             subsequenceInversionMutation(&(nextpop[i]), indsize);
         }
     }
-
-    // Re-evaluate the population's fitness and sort the individuals by fitness
-    evalPopFitness(nextpop, popsize, indsize);
-    qsort(nextpop, popsize, sizeof(individual), fit_cmp);
 }
 
 /**
