@@ -11,6 +11,7 @@ TODO:
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <pthread.h> 
 
 #define MAXN 1001
 #define V
@@ -29,18 +30,38 @@ typedef struct _couple {
     individual *b;
 } couple;
 
+typedef struct _tspcfg {
+    // What's the size of the problem?
+    int indsize;
+
+    // How much machinery for heavy lifting?
+    int popsize;
+    int npops;
+    int ngens;
+
+    // How much iterations without improvements before throwing the towel?
+    int maxgrad0count;
+
+    // How much randomness?
+    double swap_mutation_rate;
+    double inversion_mutation_rate;
+    double individual_replacement_rate;
+
+    // How much not randomness?
+    int elitesize;
+    int tournament_size;
+
+    // How much recombination of the individuals?
+    double crossover_rate;
+    double population_migration_rate;
+    double individual_migration_rate;
+} tspcfg;
+
 individual best;
 
 // Function declarations
 
-void magic(
-        int npops, int popsize, int indsize, int ngens,
-        int maxgrad0count,
-        double swap_mutation_rate, double inversion_mutation_rate, double individual_replacement_rate,
-        int elitesize,
-        int tournament_size, double crossover_rate,
-        double population_migration_rate, double individual_migration_rate
-);
+void magic(tspcfg *cfg);
 
 individual **initializePopulations(int npops, int popsize, int indsize);
 individual *newIndividual(individual *new, int indsize);
@@ -48,12 +69,7 @@ void shuffle(int *array, int size);
 void evalPopFitness(individual *population, int popsize, int indsize);
 double evalIndFitness(individual *ind, int indsize);
 
-void evolvePopulation(
-    individual *population, individual *nextpop, int popsize, int indsize, 
-    double swap_mutation_rate, double inversion_mutation_rate, 
-    int elitesize,
-    int tournament_size, double crossover_rate
-);
+void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg);
 
 couple tournament(int tsize, individual *population, int popsize);
 void crossOver(couple parents, individual *maria, individual *zezinho, int indsize);
@@ -62,6 +78,7 @@ void subsequenceInversionMutation(individual *ind, int indsize);
 int fit_cmp(const void *ls, const void *rs);
 int fit_cmp_ptr(const void *ls, const void *rs);
 
+void free_the_world(individual **world, int npops, int popsize);
 void printIndividual(individual *ind, int indsize);
 
 
@@ -78,38 +95,35 @@ int main(){
 
     // ===== Parameterization =====
 
+    tspcfg config;
+    config.indsize = N;
+
     // How much machinery for heavy lifting?
-    int popsize = 250;
-    int npops = 50;
-    int ngens = 2000;
+    config.popsize = 250;
+    config.npops = 50;
+    config.ngens = 10000;
 
     // How much iterations without improvements before throwing the towel?
-    int maxgrad0count = N*2;
+    config.maxgrad0count = N*2;
 
     // How much randomness?
-    double swap_mutation_rate = 0.15;
-    double inversion_mutation_rate = 0.15;
-    double individual_replacement_rate = 0.01;
+    config.swap_mutation_rate = 0.15;
+    config.inversion_mutation_rate = 0.15;
+    config.individual_replacement_rate = 0.01;
 
     // How much not randomness?
-    int elitesize = 3;
-    int tournament_size = 5;
+    config.elitesize = 3;
+    config.tournament_size = 5;
 
     // How much recombination of the individuals?
-    double crossover_rate = 0.7;
-    double population_migration_rate = 0.1;
-    double individual_migration_rate = 0.01;
+    config.crossover_rate = 0.7;
+    config.population_migration_rate = 0.1;
+    config.individual_migration_rate = 0.01;
 
     // ===== Parameterization =====
 
     // call tsp evo
-    magic(
-        npops, popsize, N,
-        ngens, maxgrad0count,
-        swap_mutation_rate, inversion_mutation_rate, individual_replacement_rate,
-        elitesize, tournament_size,
-        crossover_rate, population_migration_rate, individual_migration_rate
-    );
+    magic(&config);
 
     return 0;
 }
@@ -117,14 +131,7 @@ int main(){
 /**
  * Evolutionary meta-heuristic algorithm for evolving solutions to the TSP problem.
  */
-void magic(
-        int npops, int popsize, int indsize, int ngens,
-        int maxgrad0count,
-        double swap_mutation_rate, double inversion_mutation_rate, double individual_replacement_rate,
-        int elitesize,
-        int tournament_size, double crossover_rate,
-        double population_migration_rate, double individual_migration_rate
-    ) {
+void magic(tspcfg *cfg) {
 
     // Keep a reference of the best individual ever.
     individual best;
@@ -137,14 +144,14 @@ void magic(
     start = clock();
 
     //generate initial populations
-    individual **populations = initializePopulations(npops, popsize, indsize);
-    individual **nextpops = initializePopulations(npops, popsize, indsize);
+    individual **populations = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize);
+    individual **nextpops = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize);
 
     best = populations[0][0];
 
     // generations loop
     int grad0count = 0;
-    for (int gen = 1; gen <= ngens; gen++) {
+    for (int gen = 1; gen <= cfg->ngens; gen++) {
 
 #ifdef V
         clock_t gen_start, gen_finish;
@@ -153,7 +160,7 @@ void magic(
 
         // Find the best individual among all populations for reference.
         double prev_best = best.fitness;
-        for(int p = 1; p < npops; p++){
+        for(int p = 1; p < cfg->npops; p++){
             if(populations[p][0].fitness < best.fitness){
                 best = populations[p][0];
             }
@@ -163,33 +170,27 @@ void magic(
             grad0count = 0;
         } else {
             grad0count++;
-            if (grad0count > maxgrad0count) {
+            if (grad0count > cfg->maxgrad0count) {
                 break;
             }
         }
 
         // Evolve the populations
-        for (int p = 0; p < npops; p++) {
-            evolvePopulation(
-                populations[p], nextpops[p],
-                popsize, indsize,
-                swap_mutation_rate, inversion_mutation_rate,
-                elitesize,
-                tournament_size, crossover_rate
-            );
+        for (int p = 0; p < cfg->npops; p++) {
+            evolvePopulation(populations[p], nextpops[p], cfg);
         }
 
         //perform migrations between populations
-        if ((rand() % 10000)/10000.0 <= population_migration_rate) {
-            int p1 = rand() % npops;
-            int p2 = rand() % npops;
+        if ((rand() % 10000)/10000.0 <= cfg->population_migration_rate) {
+            int p1 = rand() % cfg->npops;
+            int p2 = rand() % cfg->npops;
             
             while(p2 == p1)
-                p2 = rand() % npops;
+                p2 = rand() % cfg->npops;
 
-            for (int k=0; k<popsize; k++) {
-                if ((rand() % 10000)/10000.0 <= individual_migration_rate * log(gen) / log(2)) {
-                    int ind2 = rand() % popsize;
+            for (int k = 0; k < cfg->popsize; k++) {
+                if ((rand() % 10000)/10000.0 <= cfg->individual_migration_rate * (log(gen) / log(2))) {
+                    int ind2 = rand() % cfg->popsize;
                     individual tmp = populations[p1][k];
                     populations[p1][k] = populations[p2][ind2];
                     populations[p2][ind2] = tmp;
@@ -198,19 +199,19 @@ void magic(
         }
 
         // Replace some individuals randomly
-        for (int p = 0; p < npops; p++) {
-            for (int i = elitesize; i < popsize; i++) {
-                if ((rand() % 10000) / 10000.0 < individual_replacement_rate) {
-                    shuffle(populations[p][i].perm, indsize);
-                    evalIndFitness(&(populations[p][i]), indsize);
+        for (int p = 0; p < cfg->npops; p++) {
+            for (int i = cfg->elitesize; i < cfg->popsize; i++) {
+                if ((rand() % 10000) / 10000.0 < cfg->individual_replacement_rate) {
+                    shuffle(populations[p][i].perm, cfg->indsize);
+                    evalIndFitness(&(populations[p][i]), cfg->indsize);
                 }
             }
         }
 
         // Evaluate the next population's fitness and sort the individuals by fitness
-        for (int p = 0; p < npops; p++) {
-            evalPopFitness(nextpops[p], popsize, indsize);
-            qsort(nextpops[p], popsize, sizeof(individual), fit_cmp);
+        for (int p = 0; p < cfg->npops; p++) {
+            evalPopFitness(nextpops[p], cfg->popsize, cfg->indsize);
+            qsort(nextpops[p], cfg->popsize, sizeof(individual), fit_cmp);
         }
 
         // Swap nextpops with populations for double buffering (i.e. avoid memory allocation overhead).
@@ -227,17 +228,12 @@ void magic(
 
 #ifdef V
     printf("Best: ");
-    printIndividual(&best, indsize);
+    printIndividual(&best, cfg->indsize);
 #endif
 
     // Free all the allocated memory for easier mem leak validation.
-    for (int p = 0; p < npops; p++) {
-        for (int i = 0; i < popsize; i++) {
-            free(populations[p][i].perm);
-        }
-        free(populations[p]);
-    }
-    free(populations);
+    free_the_world(populations, cfg->npops, cfg->popsize);
+    free_the_world(nextpops, cfg->npops, cfg->popsize);
 
     // Time statistics
     finish = clock();
@@ -319,70 +315,75 @@ void evalPopFitness(individual *population, int popsize, int indsize) {
  * @param indsize The size of the individual.
  */
 double evalIndFitness(individual *ind, int indsize) {
-    int i=0;
+    int i = 0;
     double fitness = 0;
 
-    for (i = 0; i < indsize; i++) {
-        if (i < indsize - 1)
-            fitness += costs[ind->perm[i]][ind->perm[i+1]];
-        else
-            fitness += costs[ind->perm[i]][ind->perm[0]];
+    for (i = 0; i < indsize - 1; i++) {
+        fitness += costs[ind->perm[i]][ind->perm[i+1]];
     }
+    fitness += costs[ind->perm[indsize - 1]][ind->perm[0]];
+
     return fitness;
+}
+
+void *popEvolutionWrapper(void *vargp) {
+} 
+   
+void evolveAllPopulations(individual **populations, individual **nextpops, tspcfg *cfg) 
+{
+    int numthreads = 8;
+    pthread_t thread_id;
+    pthread_create(&thread_id, NULL, popEvolutionWrapper, NULL); 
+    pthread_join(thread_id, NULL);
 }
 
 /**
  * Performs one generation of evolution on a given population.
  */
-void evolvePopulation(
-        individual *population, individual *nextpop, int popsize, int indsize, 
-        double swap_mutation_rate, double inversion_mutation_rate,
-        int elitesize,
-        int tournament_size, double crossover_rate
-    ) {
+void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg) {
 
     // Copy the elite from population[0 : elitesize] to nextpop[0 : elitesize]
-    for (int i = 0; i < elitesize; i++) {
+    for (int i = 0; i < cfg->elitesize; i++) {
         nextpop[i].fitness = population[i].fitness;
-        for (int j = 0; j < indsize; j++)
+        for (int j = 0; j < cfg->indsize; j++)
             nextpop[i].perm[j] = population[i].perm[j];
     }
 
     // Combine the population via sex (parent selection and crossover)
-    for (int i = elitesize; i < popsize; i += 2) {
-        couple parents = tournament(tournament_size, population, popsize);
+    for (int i = cfg->elitesize; i < cfg->popsize; i += 2) {
+        couple parents = tournament(cfg->tournament_size, population, cfg->popsize);
 
-        if ((rand() % 10000) / 10000.0 <= crossover_rate) {
+        if ((rand() % 10000) / 10000.0 <= cfg->crossover_rate) {
             // Recombine the parents with a cross over strategy
-            if (i + 1 < popsize) {
-                crossOver(parents, &(nextpop[i]), &(nextpop[i + 1]), indsize);
+            if (i + 1 < cfg->popsize) {
+                crossOver(parents, &(nextpop[i]), &(nextpop[i + 1]), cfg->indsize);
             } else {
-                crossOver(parents, &(nextpop[i]), NULL, indsize);
+                crossOver(parents, &(nextpop[i]), NULL, cfg->indsize);
             }
 
         }else{
             // Copy the parents "as is"
             nextpop[i].fitness = parents.a->fitness;
-            for (int j = 0; j < indsize; j++)
+            for (int j = 0; j < cfg->indsize; j++)
                 nextpop[i].perm[j] = parents.a->perm[j];
 
-            if (i + 1 < popsize) {
+            if (i + 1 < cfg->popsize) {
                 nextpop[i+1].fitness = parents.a->fitness;
-                for (int j = 0; j < indsize; j++)
+                for (int j = 0; j < cfg->indsize; j++)
                     nextpop[i+1].perm[j] = parents.a->perm[j];
             }
         }
     }
 
     // Mutate the next population
-    for (int i = elitesize; i < popsize; i++) {
+    for (int i = cfg->elitesize; i < cfg->popsize; i++) {
         
-        if ((rand() % 10000)/10000.0 <= swap_mutation_rate) {
-            swapMutation(&(nextpop[i]), indsize);
+        if ((rand() % 10000)/10000.0 <= cfg->swap_mutation_rate) {
+            swapMutation(&(nextpop[i]), cfg->indsize);
         }
 
-        if ((rand() % 10000)/10000.0 <= inversion_mutation_rate) {
-            subsequenceInversionMutation(&(nextpop[i]), indsize);
+        if ((rand() % 10000)/10000.0 <= cfg->inversion_mutation_rate) {
+            subsequenceInversionMutation(&(nextpop[i]), cfg->indsize);
         }
     }
 }
@@ -401,7 +402,7 @@ couple tournament(int tsize, individual *population, int popsize) {
         int idx = rand() % popsize;
 
         // Re-assign a random value untill its unique in this tournament
-        for (int j = 0; j < tsize; j++) {
+        for (int j = 0; used[j] >= 0 && j < tsize; j++) {
             if (used[j] == idx) {
                 idx = rand() % popsize;
                 j = 0;
@@ -508,7 +509,7 @@ void swapMutation(individual *ind, int indsize) {
  * Mutates an individual by inverting a subsection of the permutation.
  */
 void subsequenceInversionMutation(individual *ind, int indsize) {
-    int range = rand() % indsize;
+    int range = rand() % (indsize / 2);
     int start = rand() % (indsize - range);
 
     int tmp, i, count = 0;
@@ -550,6 +551,19 @@ int fit_cmp_ptr(const void *ls, const void *rs) {
         return 1;
     else
         return 0;
+}
+
+/**
+ * Liberates all the populations. Frees their allocated memory.
+ */
+void free_the_world(individual **world, int npops, int popsize) {
+    for (int p = 0; p < npops; p++) {
+        for (int i = 0; i < popsize; i++) {
+            free(world[p][i].perm);
+        }
+        free(world[p]);
+    }
+    free(world);
 }
 
 /**
