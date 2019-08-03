@@ -30,7 +30,8 @@ void magic(
         int maxgrad0count,
         double swap_mutation_rate, double inversion_mutation_rate,
         int elitesize,
-        int tournament_size, double crossover_rate
+        int tournament_size, double crossover_rate,
+        double population_migration_rate, double individual_migration_rate
 );
 
 individual **initializePopulations(int npops, int popsize, int indsize);
@@ -77,8 +78,8 @@ int main(){
     int maxgrad0count = 50;
 
     // How much randomness?
-    double swap_mutation_rate = 0.3;
-    double inversion_mutation_rate = 0.3;
+    double swap_mutation_rate = 0.15;
+    double inversion_mutation_rate = 0.15;
 
     // How much not randomness?
     int elitesize = 3;
@@ -86,11 +87,19 @@ int main(){
 
     // How much recombination of the individuals?
     double crossover_rate = 0.7;
+    double population_migration_rate = 0.1;
+    double individual_migration_rate = 0.01;
 
     // ===== Parameterization =====
 
     // call tsp evo
-    magic(npops, popsize, N, ngens, maxgrad0count, swap_mutation_rate, inversion_mutation_rate, elitesize, tournament_size, crossover_rate);
+    magic(
+        npops, popsize, N,
+        ngens, maxgrad0count,
+        swap_mutation_rate, inversion_mutation_rate,
+        elitesize, tournament_size,
+        crossover_rate, population_migration_rate, individual_migration_rate
+    );
 
     return 0;
 }
@@ -103,7 +112,8 @@ void magic(
         int maxgrad0count,
         double swap_mutation_rate, double inversion_mutation_rate,
         int elitesize,
-        int tournament_size, double crossover_rate
+        int tournament_size, double crossover_rate,
+        double population_migration_rate, double individual_migration_rate
     ) {
 
     // Keep a reference of the best individual ever.
@@ -125,6 +135,11 @@ void magic(
     // generations loop
     int grad0count = 0;
     for (int gen = 1; gen <= ngens; gen++) {
+
+#ifdef V
+        clock_t gen_start, gen_finish;
+        gen_start = clock();
+#endif
 
         // Find the best individual among all populations for reference.
         double prev_best = best.fitness;
@@ -154,12 +169,32 @@ void magic(
             );
         }
 
+        //perform migrations between populations
+        if ((rand() % 10000)/10000.0 <= population_migration_rate) {
+            int p1 = rand() % npops;
+            int p2 = rand() % npops;
+            
+            while(p2 == p1)
+                p2 = rand() % npops;
+
+            for (int k=0; k<popsize; k++) {
+                if ((rand() % 10000)/10000.0 <= individual_migration_rate) {
+                    int ind2 = rand() % popsize;
+                    individual tmp = populations[p1][k];
+                    populations[p1][k] = populations[p2][ind2];
+                    populations[p2][ind2] = tmp;
+                }
+            }
+        }
+
         // Swap nextpops with populations for double buffering (i.e. avoid memory allocation overhead).
         individual **tmp = populations;
         populations = nextpops;
         nextpops = tmp;
 
 #ifdef V
+        gen_finish = clock();
+        printf("[%04d] Took %lf seconds\n", gen, (double)((gen_finish - gen_start)/(double)CLOCKS_PER_SEC) );
         printf("[%04d] Best: %lf\n", gen, best.fitness);
 #endif
     }
