@@ -70,12 +70,12 @@ int main(){
     // ===== Parameterization =====
 
     // How much machinery for heavy lifting?
-    int popsize = 1000;
+    int popsize = 250;
     int npops = 50;
     int ngens = 2000;
 
     // How much iterations without improvements before throwing the towel?
-    int maxgrad0count = 50;
+    int maxgrad0count = N*2;
 
     // How much randomness?
     double swap_mutation_rate = 0.15;
@@ -424,24 +424,29 @@ void crossOver(couple parents, individual *maria, individual *zezinho, int indsi
 
     int count = 0;
     int idx = 0;
+    int startIdx = 0;
+    int cycle_count = 0;
     while (count < indsize ) {
 
-        for (int i = 0; i < indsize; i++) {
+        cycle_count++;
+
+        for (int i = startIdx; i < indsize; i++) {
             if (!used[i]) {
                 idx = i;
+                startIdx = idx;
                 break;
             }
         }
 
         // Decide whether each son will receive from one parent or the other
-        double r = (rand() % 10000) / 10000.0;
+        // double r = (rand() % 10000) / 10000.0;
         
         while (!used[idx]) {
-            if (r < 0.5) {
-                if (maria) maria->perm[idx] = mother->perm[idx];
+            if (cycle_count % 2) {
+                maria->perm[idx] = mother->perm[idx];
                 if (zezinho) zezinho->perm[idx] = father->perm[idx];
             } else {
-                if (maria) maria->perm[idx] = father->perm[idx];
+                maria->perm[idx] = father->perm[idx];
                 if (zezinho) zezinho->perm[idx] = mother->perm[idx];
             }
 
