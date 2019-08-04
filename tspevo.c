@@ -1,7 +1,6 @@
 /*
 TODO:
- > Parameter tunning
- > Parallellization
+ > Parameter tunning -- Also make MIGRATIONS macro configurable
  > Use edge flipping mutation operation
  > Check other crossover algorithms
 */
@@ -13,17 +12,29 @@ TODO:
 #include <time.h>
 #include <sys/time.h>
 #include "worker_pool.h"
+#include <unistd.h>
 
 #define MAXN 1001
-#define V
-#define MULTI_THREAD 4
+#define VE
+#define MIGRATIONS 50
+
+/**
+ * The flag below makes the program run across multiple threads. However, the parallelization
+ * makes it slower. I've added bulk jobs (i.e. 100 generations for a populations range per thread)
+ * to avoid context switching and synchronization overheads, but to no avail. I've also ran tests
+ * using small populations in order to rule out cache misses as the culprit, they don't seem to be
+ * the culprit. This has been put on hold and we shall go on single threadedly.
+ */
+// #define MULTI_THREAD 4
+
+volatile unsigned long popevo_count;
 
 // problem configuration
 double costs[MAXN][MAXN];
 
 // Data structures
 typedef struct _individual {
-    int *perm;
+    unsigned char *perm;
     double fitness;
 } individual;
 
@@ -78,7 +89,7 @@ individual magic(tspcfg *cfg);
 
 individual **initializePopulations(int npops, int popsize, int indsize);
 individual *newIndividual(individual *new, int indsize);
-void shuffle(int *array, int size);
+void shuffle(unsigned char *array, int size);
 void evalPopFitness(individual *population, int popsize, int indsize);
 double evalIndFitness(individual *ind, int indsize);
 
@@ -106,24 +117,23 @@ int main(){
         costs[i][j] = cost;
     }
 
-
     // ===== Parameterization =====
 
     tspcfg config;
     config.indsize = N;
 
     // How much machinery for heavy lifting?
-    config.popsize = 50;
-    config.npops = 2500;
-    config.ngens = 15;
+    config.popsize = 250;
+    config.npops = 8;
+    config.ngens = 5000;
 
     // How much iterations without improvements before throwing the towel?
-    config.maxgrad0count = N*2;
+    config.maxgrad0count = N * 2 + config.popsize;
 
     // How much randomness?
     config.swap_mutation_rate = 0.15;
     config.inversion_mutation_rate = 0.15;
-    config.individual_replacement_rate = 0.01;
+    config.individual_replacement_rate = 0.005;
 
     // How much not randomness?
     config.elitesize = 3;
@@ -151,19 +161,22 @@ int main(){
     pool_del(config.thread_pool);
 #endif
 
+    printf("Best: ");
+    printIndividual(&best, N);
+    printf("Total evo calls: %lu\n", popevo_count);
+
     free(best.perm);
 
     return 0;
 }
 
+individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg);
+individual single_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg);
+
 /**
  * Evolutionary meta-heuristic algorithm for evolving solutions to the TSP problem.
  */
 individual magic(tspcfg *cfg) {
-
-    // Keep a reference of the best individual ever.
-    individual best;
-    best.perm = (int *)malloc(cfg->indsize * sizeof(int));
 
     // Get a good randomness for the algorithm
     srand(clock());
@@ -176,6 +189,83 @@ individual magic(tspcfg *cfg) {
     individual **populations = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize);
     individual **nextpops = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize);
 
+#ifdef MULTI_THREAD
+    individual best = multi_thread_generations_loop(populations, nextpops, cfg);
+#else
+    individual best = single_thread_generations_loop(populations, nextpops, cfg);
+#endif
+
+    // Free all the allocated memory for easier mem leak validation.
+    free_the_world(populations, cfg->npops, cfg->popsize);
+    free_the_world(nextpops, cfg->npops, cfg->popsize);
+
+    // Time statistics
+    gettimeofday(&tval_finish, NULL);
+    timersub(&tval_finish, &tval_start, &tval_whole_result);
+    printf("Took: %ld.%06ld seconds\n", (long int)tval_whole_result.tv_sec, (long int)tval_whole_result.tv_usec);
+
+    return best;
+}
+
+individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg) {
+    
+    int bulk_size = 5000;
+    evo_job jobs[cfg->npops];
+
+    int step = cfg->npops / cfg->thread_pool->num_threads / 2;
+    step = step > 0 ? step : 1;
+
+    // Keep a reference of the best individual ever.
+    individual best;
+    best.perm = (unsigned char *)malloc(cfg->indsize * sizeof(unsigned char));
+    best.fitness = populations[0][0].fitness;
+
+    // generations loop
+    for (int gen = 1; gen <= cfg->ngens / bulk_size; gen++) {
+
+#ifdef V
+        struct timeval tval_bulk_start, tval_bulk_finish, tval_bulk_result;
+        gettimeofday(&tval_bulk_start, NULL);
+#endif
+
+        // Find the best individual among all populations for reference.
+        for (int p = 1; p < cfg->npops; p++) {
+            if (populations[p][0].fitness < best.fitness) {
+                best.fitness = populations[p][0].fitness;
+                for (int j = 0; j < cfg->indsize; j++) {
+                    best.perm[j] = populations[p][0].perm[j];
+                }
+            }
+        }
+
+        // Bulk insert the population evolution jobs to avoid thread context switching
+        for (int p = 0; p < cfg->npops; p += step) {
+            jobs[p].cfg = cfg;
+            jobs[p].populations = populations;
+            jobs[p].nextpops = nextpops;
+            jobs[p].start = p;
+            jobs[p].end = p + step;
+            pool_add_work(cfg->thread_pool, &(jobs[p]));
+        }
+
+        pool_await_empty_queue(cfg->thread_pool);
+
+#ifdef V
+        gettimeofday(&tval_bulk_finish, NULL);
+        timersub(&tval_bulk_finish, &tval_bulk_start, &tval_bulk_result);
+        printf("Took: %ld.%06ld seconds\n", (long int)tval_bulk_result.tv_sec, (long int)tval_bulk_result.tv_usec);
+        printf("[%04d] Best: %lf\n", gen, best.fitness);
+#endif
+    }
+
+    return best;
+}
+
+individual single_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg) {
+
+    // Keep a reference of the best individual ever.
+    individual best;
+    best.perm = (unsigned char *)malloc(cfg->indsize * sizeof(unsigned char));
     best.fitness = populations[0][0].fitness;
 
     // generations loop
@@ -186,6 +276,11 @@ individual magic(tspcfg *cfg) {
         struct timeval tval_gen_start, tval_gen_finish, tval_gen_result;
         gettimeofday(&tval_gen_start, NULL);
 #endif
+
+        // Sort the individuals in the populations by fitness
+        for (int p = 0; p < cfg->npops; p++) {
+            qsort(populations[p], cfg->popsize, sizeof(individual), fit_cmp);
+        }
 
         // Find the best individual among all populations for reference.
         double prev_best = best.fitness;
@@ -208,60 +303,34 @@ individual magic(tspcfg *cfg) {
         }
 
         // Evolve the populations
-#ifdef MULTI_THREAD
-        evo_job jobs[cfg->npops];
-
-        int step = cfg->npops / cfg->thread_pool->num_threads / 2;
-        //int step = 3;
-
-        for (int p = 0; p < cfg->npops; p += step) {
-            jobs[p].cfg = cfg;
-            jobs[p].populations = populations;
-            jobs[p].nextpops = nextpops;
-            jobs[p].start = p;
-            jobs[p].end = p + step;
-            pool_add_work(cfg->thread_pool, &(jobs[p]));
-        }
-        pool_await_empty_queue(cfg->thread_pool);
-#else
         for (int p = 0; p < cfg->npops; p++) {
             evolvePopulation(populations[p], nextpops[p], cfg);
         }
+
+#ifdef MIGRATIONS
+        // Have migrations every 100 generations
+        // Migrations become more likely as the number of generations increases, proportional to the logarithm of the number of generations.
+        if (gen % MIGRATIONS == 0) {
+            for (int p1 = 0; p1 < cfg->npops; p1++) {
+
+                if ((rand() % 10000)/10000.0 <= cfg->population_migration_rate * (log(gen) / log(2))) {
+                    
+                    int p2 = rand() % cfg->npops;
+                    while(p2 == p1)
+                        p2 = rand() % cfg->npops;
+
+                    for (int k = 0; k < cfg->popsize; k++) {
+                        if ((rand() % 10000)/10000.0 <= cfg->individual_migration_rate * (log(gen) / log(2))) {
+                            int ind2 = rand() % cfg->popsize;
+                            individual tmp = nextpops[p1][k];
+                            nextpops[p1][k] = nextpops[p2][ind2];
+                            nextpops[p2][ind2] = tmp;
+                        }
+                    }
+                }
+            }
+        }
 #endif
-
-        //perform migrations between populations
-        if ((rand() % 10000)/10000.0 <= cfg->population_migration_rate) {
-            int p1 = rand() % cfg->npops;
-            int p2 = rand() % cfg->npops;
-            
-            while(p2 == p1)
-                p2 = rand() % cfg->npops;
-
-            for (int k = 0; k < cfg->popsize; k++) {
-                if ((rand() % 10000)/10000.0 <= cfg->individual_migration_rate * (log(gen) / log(2))) {
-                    int ind2 = rand() % cfg->popsize;
-                    individual tmp = populations[p1][k];
-                    populations[p1][k] = populations[p2][ind2];
-                    populations[p2][ind2] = tmp;
-                }
-            }
-        }
-
-        // Replace some individuals randomly
-        for (int p = 0; p < cfg->npops; p++) {
-            for (int i = cfg->elitesize; i < cfg->popsize; i++) {
-                if ((rand() % 10000) / 10000.0 < cfg->individual_replacement_rate) {
-                    shuffle(populations[p][i].perm, cfg->indsize);
-                    evalIndFitness(&(populations[p][i]), cfg->indsize);
-                }
-            }
-        }
-
-        // Evaluate the next population's fitness and sort the individuals by fitness
-        for (int p = 0; p < cfg->npops; p++) {
-            evalPopFitness(nextpops[p], cfg->popsize, cfg->indsize);
-            qsort(nextpops[p], cfg->popsize, sizeof(individual), fit_cmp);
-        }
 
         // Swap nextpops with populations for double buffering (i.e. avoid memory allocation overhead).
         individual **tmp = populations;
@@ -275,20 +344,6 @@ individual magic(tspcfg *cfg) {
         printf("[%04d] Best: %lf\n", gen, best.fitness);
 #endif
     }
-
-#ifdef V
-    printf("Best: ");
-    printIndividual(&best, cfg->indsize);
-#endif
-
-    // Free all the allocated memory for easier mem leak validation.
-    free_the_world(populations, cfg->npops, cfg->popsize);
-    free_the_world(nextpops, cfg->npops, cfg->popsize);
-
-    // Time statistics
-    gettimeofday(&tval_finish, NULL);
-    timersub(&tval_finish, &tval_start, &tval_whole_result);
-    printf("Took: %ld.%06ld seconds\n", (long int)tval_whole_result.tv_sec, (long int)tval_whole_result.tv_usec);
 
     return best;
 }
@@ -322,7 +377,7 @@ individual **initializePopulations(int npops, int popsize, int indsize) {
 individual *newIndividual(individual *new, int indsize) {
     
     new->fitness = 0;
-    new->perm = (int *)malloc(indsize * sizeof(int));
+    new->perm = (unsigned char *)malloc(indsize * sizeof(unsigned char));
 
     for (int i = 0; i < indsize; i++) {
         new->perm[i] = i;
@@ -336,7 +391,7 @@ individual *newIndividual(individual *new, int indsize) {
 /**
  * Makes 2*N swaps on an array for randomization
  */
-void shuffle(int *array, int size) {
+void shuffle(unsigned char *array, int size) {
     int tmp, i1, i2;
     for (int i = 0; i < 2 * size; i++) {
         i1 = rand() % size;
@@ -380,17 +435,44 @@ double evalIndFitness(individual *ind, int indsize) {
 }
 
 void popEvolutionThreadPoolWrapper(void *_job) {
-    evo_job *job = (evo_job *)_job;
 
-    for (int i = job->start; i < job->end && i < job->cfg->npops; i++) {
-        evolvePopulation(job->populations[i], job->nextpops[i], job->cfg);
+#ifdef V
+    struct timeval tval_start, tval_finish, tval_result;
+    gettimeofday(&tval_start, NULL);
+#endif
+
+    evo_job *job = (evo_job *)_job;
+    int bulk_size = 5000;
+
+    for (int bulk = 0; bulk < bulk_size; bulk++) {
+        for (int i = job->start; i < job->end && i < job->cfg->npops; i++) {
+            evolvePopulation(job->populations[i], job->nextpops[i], job->cfg);
+            qsort(job->nextpops[i], job->cfg->popsize, sizeof(individual), fit_cmp);
+
+            // Swap (double buffer)
+            individual *tmp = job->populations[i];
+            job->populations[i] = job->nextpops[i];
+            job->nextpops[i] = tmp;
+        }
     }
+
+#ifdef V
+    gettimeofday(&tval_finish, NULL);
+    timersub(&tval_finish, &tval_start, &tval_result);
+    printf("Bulk Job Took: %ld.%06ld seconds\n", (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
+#endif
+
 }
 
 /**
  * Performs one generation of evolution on a given population.
  */
 void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg) {
+
+#ifdef V
+    struct timeval tval_start, tval_finish, tval_result;
+    gettimeofday(&tval_start, NULL);
+#endif
 
     // Copy the elite from population[0 : elitesize] to nextpop[0 : elitesize]
     for (int i = 0; i < cfg->elitesize; i++) {
@@ -436,6 +518,23 @@ void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg) 
             subsequenceInversionMutation(&(nextpop[i]), cfg->indsize);
         }
     }
+
+    // Replace some individuals randomly
+    for (int i = cfg->elitesize; i < cfg->popsize; i++) {
+        if ((rand() % 10000) / 10000.0 < cfg->individual_replacement_rate) {
+            shuffle(nextpop[i].perm, cfg->indsize);
+        }
+    }
+
+    // Eval the fitness of the population
+    evalPopFitness(nextpop, cfg->popsize, cfg->indsize);
+
+#ifdef V
+    gettimeofday(&tval_finish, NULL);
+    timersub(&tval_finish, &tval_start, &tval_result);
+#endif
+
+    popevo_count++;
 }
 
 /**
@@ -499,7 +598,7 @@ void crossOver(couple parents, individual *maria, individual *zezinho, int indsi
     char used[indsize];
     memset(used, 0, sizeof(char) * indsize);
 
-    int mothermap[indsize];
+    unsigned char mothermap[indsize];
 
     for (int i = 0; i < indsize; i++) {
         mothermap[parents.b->perm[i]] = i;
@@ -509,8 +608,8 @@ void crossOver(couple parents, individual *maria, individual *zezinho, int indsi
     individual *mother = parents.b;
 
     int count = 0;
-    int idx = 0;
-    int startIdx = 0;
+    unsigned int idx = 0;
+    unsigned int startIdx = 0;
     int cycle_count = 0;
     while (count < indsize ) {
 

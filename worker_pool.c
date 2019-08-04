@@ -31,6 +31,8 @@ void *worker_loop(void *args) {
             pool->do_work(job);
         }
     }
+
+    printf("Thread going away! Bye!\n");
     return NULL;
 }
 

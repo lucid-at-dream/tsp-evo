@@ -1,5 +1,5 @@
 
-CCFLAGS=-Wall -lm -lpthread -Og -g
+CCFLAGS=-Wall -lm -lpthread -O2 -g
 
 all: queue.c queue.h worker_pool.c worker_pool.h tspevo.c
 	gcc -c queue.c ${CCFLAGS}
