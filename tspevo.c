@@ -13,6 +13,7 @@ TODO:
 #include <sys/time.h>
 #include "worker_pool.h"
 #include <unistd.h>
+#include "conf.h"
 
 #define MAXN 1001
 #define VE
@@ -42,36 +43,6 @@ typedef struct _couple {
     individual *a;
     individual *b;
 } couple;
-
-typedef struct _tspcfg {
-    // What's the size of the problem?
-    int indsize;
-
-    // How much machinery for heavy lifting?
-    int popsize;
-    int npops;
-    int ngens;
-
-    // How much iterations without improvements before throwing the towel?
-    int maxgrad0count;
-
-    // How much randomness?
-    double swap_mutation_rate;
-    double inversion_mutation_rate;
-    double individual_replacement_rate;
-
-    // How much not randomness?
-    int elitesize;
-    int tournament_size;
-
-    // How much recombination of the individuals?
-    double crossover_rate;
-    double population_migration_rate;
-    double individual_migration_rate;
-
-    // Other, helper structures
-    worker_pool *thread_pool;
-} tspcfg;
 
 typedef struct _evo_job {
     individual **populations;
@@ -107,7 +78,10 @@ void free_the_world(individual **world, int npops, int popsize);
 void printIndividual(individual *ind, int indsize);
 
 
-int main(){
+int main(int argc, char **argv){
+
+    // Read configuration
+    tspcfg config = argParse(argc, argv);
 
     //read input
     int i,j, N;
@@ -117,34 +91,8 @@ int main(){
         costs[i][j] = cost;
     }
 
-    // ===== Parameterization =====
-
-    tspcfg config;
+    // Parameterization
     config.indsize = N;
-
-    // How much machinery for heavy lifting?
-    config.popsize = 250;
-    config.npops = 8;
-    config.ngens = 5000;
-
-    // How much iterations without improvements before throwing the towel?
-    config.maxgrad0count = N * 2 + config.popsize;
-
-    // How much randomness?
-    config.swap_mutation_rate = 0.15;
-    config.inversion_mutation_rate = 0.15;
-    config.individual_replacement_rate = 0.005;
-
-    // How much not randomness?
-    config.elitesize = 3;
-    config.tournament_size = 5;
-
-    // How much recombination of the individuals?
-    config.crossover_rate = 0.7;
-    config.population_migration_rate = 0.1;
-    config.individual_migration_rate = 0.01;
-
-    // ===== Parameterization =====
 
     // Other helpder structures
 #ifdef MULTI_THREAD
@@ -163,7 +111,9 @@ int main(){
 
     printf("Best: ");
     printIndividual(&best, N);
+#ifdef V
     printf("Total evo calls: %lu\n", popevo_count);
+#endif
 
     free(best.perm);
 
@@ -203,60 +153,6 @@ individual magic(tspcfg *cfg) {
     gettimeofday(&tval_finish, NULL);
     timersub(&tval_finish, &tval_start, &tval_whole_result);
     printf("Took: %ld.%06ld seconds\n", (long int)tval_whole_result.tv_sec, (long int)tval_whole_result.tv_usec);
-
-    return best;
-}
-
-individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg) {
-    
-    int bulk_size = 5000;
-    evo_job jobs[cfg->npops];
-
-    int step = cfg->npops / cfg->thread_pool->num_threads / 2;
-    step = step > 0 ? step : 1;
-
-    // Keep a reference of the best individual ever.
-    individual best;
-    best.perm = (unsigned char *)malloc(cfg->indsize * sizeof(unsigned char));
-    best.fitness = populations[0][0].fitness;
-
-    // generations loop
-    for (int gen = 1; gen <= cfg->ngens / bulk_size; gen++) {
-
-#ifdef V
-        struct timeval tval_bulk_start, tval_bulk_finish, tval_bulk_result;
-        gettimeofday(&tval_bulk_start, NULL);
-#endif
-
-        // Find the best individual among all populations for reference.
-        for (int p = 1; p < cfg->npops; p++) {
-            if (populations[p][0].fitness < best.fitness) {
-                best.fitness = populations[p][0].fitness;
-                for (int j = 0; j < cfg->indsize; j++) {
-                    best.perm[j] = populations[p][0].perm[j];
-                }
-            }
-        }
-
-        // Bulk insert the population evolution jobs to avoid thread context switching
-        for (int p = 0; p < cfg->npops; p += step) {
-            jobs[p].cfg = cfg;
-            jobs[p].populations = populations;
-            jobs[p].nextpops = nextpops;
-            jobs[p].start = p;
-            jobs[p].end = p + step;
-            pool_add_work(cfg->thread_pool, &(jobs[p]));
-        }
-
-        pool_await_empty_queue(cfg->thread_pool);
-
-#ifdef V
-        gettimeofday(&tval_bulk_finish, NULL);
-        timersub(&tval_bulk_finish, &tval_bulk_start, &tval_bulk_result);
-        printf("Took: %ld.%06ld seconds\n", (long int)tval_bulk_result.tv_sec, (long int)tval_bulk_result.tv_usec);
-        printf("[%04d] Best: %lf\n", gen, best.fitness);
-#endif
-    }
 
     return best;
 }
@@ -432,36 +328,6 @@ double evalIndFitness(individual *ind, int indsize) {
     fitness += costs[ind->perm[indsize - 1]][ind->perm[0]];
 
     return fitness;
-}
-
-void popEvolutionThreadPoolWrapper(void *_job) {
-
-#ifdef V
-    struct timeval tval_start, tval_finish, tval_result;
-    gettimeofday(&tval_start, NULL);
-#endif
-
-    evo_job *job = (evo_job *)_job;
-    int bulk_size = 5000;
-
-    for (int bulk = 0; bulk < bulk_size; bulk++) {
-        for (int i = job->start; i < job->end && i < job->cfg->npops; i++) {
-            evolvePopulation(job->populations[i], job->nextpops[i], job->cfg);
-            qsort(job->nextpops[i], job->cfg->popsize, sizeof(individual), fit_cmp);
-
-            // Swap (double buffer)
-            individual *tmp = job->populations[i];
-            job->populations[i] = job->nextpops[i];
-            job->nextpops[i] = tmp;
-        }
-    }
-
-#ifdef V
-    gettimeofday(&tval_finish, NULL);
-    timersub(&tval_finish, &tval_start, &tval_result);
-    printf("Bulk Job Took: %ld.%06ld seconds\n", (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
-#endif
-
 }
 
 /**
@@ -743,3 +609,89 @@ void printIndividual(individual *ind, int indsize) {
     }
     printf("\n");
 }
+
+#ifdef MULTI_THREAD
+individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg) {
+    
+    int bulk_size = 5000;
+    evo_job jobs[cfg->npops];
+
+    int step = cfg->npops / cfg->thread_pool->num_threads / 2;
+    step = step > 0 ? step : 1;
+
+    // Keep a reference of the best individual ever.
+    individual best;
+    best.perm = (unsigned char *)malloc(cfg->indsize * sizeof(unsigned char));
+    best.fitness = populations[0][0].fitness;
+
+    // generations loop
+    for (int gen = 1; gen <= cfg->ngens / bulk_size; gen++) {
+
+#ifdef V
+        struct timeval tval_bulk_start, tval_bulk_finish, tval_bulk_result;
+        gettimeofday(&tval_bulk_start, NULL);
+#endif
+
+        // Find the best individual among all populations for reference.
+        for (int p = 1; p < cfg->npops; p++) {
+            if (populations[p][0].fitness < best.fitness) {
+                best.fitness = populations[p][0].fitness;
+                for (int j = 0; j < cfg->indsize; j++) {
+                    best.perm[j] = populations[p][0].perm[j];
+                }
+            }
+        }
+
+        // Bulk insert the population evolution jobs to avoid thread context switching
+        for (int p = 0; p < cfg->npops; p += step) {
+            jobs[p].cfg = cfg;
+            jobs[p].populations = populations;
+            jobs[p].nextpops = nextpops;
+            jobs[p].start = p;
+            jobs[p].end = p + step;
+            pool_add_work(cfg->thread_pool, &(jobs[p]));
+        }
+
+        pool_await_empty_queue(cfg->thread_pool);
+
+#ifdef V
+        gettimeofday(&tval_bulk_finish, NULL);
+        timersub(&tval_bulk_finish, &tval_bulk_start, &tval_bulk_result);
+        printf("Took: %ld.%06ld seconds\n", (long int)tval_bulk_result.tv_sec, (long int)tval_bulk_result.tv_usec);
+        printf("[%04d] Best: %lf\n", gen, best.fitness);
+#endif
+    }
+
+    return best;
+}
+
+void popEvolutionThreadPoolWrapper(void *_job) {
+
+#ifdef V
+    struct timeval tval_start, tval_finish, tval_result;
+    gettimeofday(&tval_start, NULL);
+#endif
+
+    evo_job *job = (evo_job *)_job;
+    int bulk_size = 5000;
+
+    for (int bulk = 0; bulk < bulk_size; bulk++) {
+        for (int i = job->start; i < job->end && i < job->cfg->npops; i++) {
+            evolvePopulation(job->populations[i], job->nextpops[i], job->cfg);
+            qsort(job->nextpops[i], job->cfg->popsize, sizeof(individual), fit_cmp);
+
+            // Swap (double buffer)
+            individual *tmp = job->populations[i];
+            job->populations[i] = job->nextpops[i];
+            job->nextpops[i] = tmp;
+        }
+    }
+
+#ifdef V
+    gettimeofday(&tval_finish, NULL);
+    timersub(&tval_finish, &tval_start, &tval_result);
+    printf("Bulk Job Took: %ld.%06ld seconds\n", (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
+#endif
+
+}
+#endif
