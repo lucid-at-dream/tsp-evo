@@ -5,9 +5,7 @@
 #include <sys/stat.h>
 #include <string.h>
 
-#ifdef MULTI_THREAD
 #include "worker_pool.h"
-#endif
 
 typedef struct _tspcfg {
     // What's the size of the problem?
@@ -36,9 +34,8 @@ typedef struct _tspcfg {
     double individual_migration_rate;
 
     // Other, helper structures
-#ifdef MULTI_THREAD
     worker_pool *thread_pool;
-#endif
+    unsigned int *rand_seeds;
 } tspcfg;
 
 
