@@ -204,7 +204,7 @@ individual single_thread_generations_loop(individual **populations, individual *
         }
 
 #ifdef MIGRATIONS
-        // Have migrations every 100 generations
+        // Have migrations every MIGRATIONS generations
         // Migrations become more likely as the number of generations increases, proportional to the logarithm of the number of generations.
         if (gen % MIGRATIONS == 0) {
             for (int p1 = 0; p1 < cfg->npops; p1++) {
@@ -613,7 +613,7 @@ void printIndividual(individual *ind, int indsize) {
 #ifdef MULTI_THREAD
 individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg) {
     
-    int bulk_size = 5000;
+    int bulk_size = MIGRATIONS;
     evo_job jobs[cfg->npops];
 
     int step = cfg->npops / cfg->thread_pool->num_threads / 2;
@@ -654,6 +654,29 @@ individual multi_thread_generations_loop(individual **populations, individual **
 
         pool_await_empty_queue(cfg->thread_pool);
 
+#ifdef MIGRATIONS
+        // Have migrations every MIGRATIONS generations
+        // Migrations become more likely as the number of generations increases, proportional to the logarithm of the number of generations.
+        for (int p1 = 0; p1 < cfg->npops; p1++) {
+
+            if ((rand() % 10000)/10000.0 <= cfg->population_migration_rate * (log(gen) / log(2))) {
+                
+                int p2 = rand() % cfg->npops;
+                while(p2 == p1)
+                    p2 = rand() % cfg->npops;
+
+                for (int k = 0; k < cfg->popsize; k++) {
+                    if ((rand() % 10000)/10000.0 <= cfg->individual_migration_rate * (log(gen) / log(2))) {
+                        int ind2 = rand() % cfg->popsize;
+                        individual tmp = nextpops[p1][k];
+                        nextpops[p1][k] = nextpops[p2][ind2];
+                        nextpops[p2][ind2] = tmp;
+                    }
+                }
+            }
+        }
+#endif
+
 #ifdef V
         gettimeofday(&tval_bulk_finish, NULL);
         timersub(&tval_bulk_finish, &tval_bulk_start, &tval_bulk_result);
@@ -673,7 +696,7 @@ void popEvolutionThreadPoolWrapper(void *_job) {
 #endif
 
     evo_job *job = (evo_job *)_job;
-    int bulk_size = 5000;
+    int bulk_size = MIGRATIONS;
 
     for (int bulk = 0; bulk < bulk_size; bulk++) {
         for (int i = job->start; i < job->end && i < job->cfg->npops; i++) {

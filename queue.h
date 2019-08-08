@@ -7,9 +7,9 @@ typedef struct _queue_item {
 } queue_item;
 
 typedef struct _queue {
-    int size;
-    queue_item *head;
-    queue_item *last;
+    volatile int size;
+    volatile queue_item *head;
+    volatile queue_item *last;
 } queue;
 
 // Create and delete a queue

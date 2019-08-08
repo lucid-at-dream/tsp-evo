@@ -1,5 +1,5 @@
 
-CCFLAGS=-Wall -lm -lpthread -O2 -mtune=native
+CCFLAGS=-Wall -lm -lpthread -O2 -mtune=native -DV -DMULTI_THREAD=8
 
 all: conf.c conf.h queue.c queue.h worker_pool.c worker_pool.h tspevo.c
 	gcc -c queue.c ${CCFLAGS}

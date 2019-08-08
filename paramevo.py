@@ -4,15 +4,16 @@ from os import makedirs
 from random import randint, random, choice, sample
 from os import system
 from numpy import mean
+from time import time
 
 prob_size = 100
 inputs_folder = 'in'
 binary = "./t"
-ninputs = 5
-run_count = 5
+ninputs = 4
+run_count = 2
 
-popsize = 250
-npops = 25
+popsize = 100
+npops = 10
 ngens = 1000
 tournament_size = 5
 maxgrad0count = 100
@@ -110,7 +111,7 @@ while count < ninputs:
     count += 1
 
 # Parameterize this algorithm
-_popsize = 100
+_popsize = 50
 _ngens = 1000
 _elite = 2
 _crossover_rate = 0.7
@@ -118,17 +119,24 @@ _tournament_size = 3
 _mutation_rate = 0.3
 
 # Generate initial population
+start = time()
+
 pop = [generate_individual() for i in range(_popsize)]
 for ind in pop:
     evaluate_ind(ind)
 pop = sorted(pop, key=lambda x: x['#fitness'])
 
+stop = time()
+print("Generation took %.2lf seconds" % (stop - start))
+
 for gen in range(_ngens):
 
+    start = time()
+
     print("[%.3d] Current best solution is %s with fitness %lf followed by %s" % (
-        gen, 
-        pop[0]['#rundir'], 
-        pop[0]['#fitness'], 
+        gen,
+        pop[0]['#rundir'],
+        pop[0]['#fitness'],
         str([i["#fitness"] for i in pop[1:6]])
     ))
 
@@ -158,6 +166,9 @@ for gen in range(_ngens):
     nextpop = None
 
     pop = sorted(pop, key=lambda x: x['#fitness'])
+
+    stop = time()
+    print("Generation took %.2lf seconds" % (stop - start))
 
 
 

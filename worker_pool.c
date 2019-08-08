@@ -15,8 +15,11 @@ void *worker_loop(void *args) {
         pthread_cond_signal(&(pool->await_idle_cond));
 
         while (pool->work_queue->size <= 0 && !pool->stop) { // If there's no work and we shouldn't stop: wait.
+            printf("Waiting for work! %d jobs found.\n", pool->work_queue->size);
             pthread_cond_wait(&(pool->await_work_cond), &(pool->queue_mutex));
         }
+        
+        printf("Got Work! %d jobs found.\n", pool->work_queue->size);
 
         // Get the job
         void *job = queue_pop(pool->work_queue);
