@@ -1,0 +1,13 @@
+popsize 100
+npops 10
+ngens 1000
+tournament_size 5
+maxgrad0count 100
+swap_mutation_rate 0.5201532455407405
+inversion_mutation_rate 0
+individual_replacement_rate 0.0659526902880471
+elitesize 24
+crossover_rate 0.49907412991486255
+population_migration_rate 0.5052279702351127
+individual_migration_rate 0.9348150432088848
+#rundir runs/ind_2804200606369
