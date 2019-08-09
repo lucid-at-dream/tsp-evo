@@ -102,7 +102,10 @@ void parseCfgLine(tspcfg *config, char *line) {
     char *value = line+i+1;
     line[i] = '\0';
 
-    if (strcmp(line, "popsize") == 0) {
+    if (strcmp(line, "nthreads") == 0) {
+        config->nthreads = atoi(value);
+    }
+    else if (strcmp(line, "popsize") == 0) {
         config->popsize = atoi(value);
     }
     else if (strcmp(line, "npops") == 0) {
@@ -131,6 +134,9 @@ void parseCfgLine(tspcfg *config, char *line) {
     }
     else if (strcmp(line, "crossover_rate") == 0) {
         config->crossover_rate = atof(value);
+    }
+    else if (strcmp(line, "migrations") == 0) {
+        config->migrations = atoi(value);
     }
     else if (strcmp(line, "population_migration_rate") == 0) {
         config->population_migration_rate = atof(value);

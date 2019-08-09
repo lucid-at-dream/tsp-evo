@@ -1,45 +1,27 @@
 /*
 TODO:
- > Parameter tunning -- Also make MIGRATIONS macro configurable
- > Use edge flipping mutation operation
- > Check other crossover algorithms
-*/
+ > Use edge flipping mutation operation:
+    If the line from P[i] to P[i+1] crosses the line from P[j] to P[j+1],
+    Swap the values of P[i+1] and P[j+1]
 
+ > Use a "optimum mutation" operation:
+    Pick a subsequence from the permutation with N >= 3, and replace it with it's optimal solution.
+
+ > Investigate other crossover mechanisms
+*/
+#include "tspevo.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <time.h>
 #include <sys/time.h>
 #include "worker_pool.h"
 #include <unistd.h>
-#include "conf.h"
 #include <limits.h>
-
-#define MAXN 1001
-#define VE
-#define MIGRATIONS 50
-
-/**
- * The flag below makes the program run across multiple threads. However, the parallelization
- * makes it slower. I've added bulk jobs (i.e. 100 generations for a populations range per thread)
- * to avoid context switching and synchronization overheads, but to no avail. I've also ran tests
- * using small populations in order to rule out cache misses as the culprit, they don't seem to be
- * the culprit. This has been put on hold and we shall go on single threadedly.
- */
-#define MULTI_THREAD 4
 
 volatile unsigned long popevo_count;
 
-// problem configuration
-double costs[MAXN][MAXN];
-
 // Data structures
-typedef struct _individual {
-    unsigned char *perm;
-    double fitness;
-} individual;
-
 typedef struct _couple {
     individual *a;
     individual *b;
@@ -57,14 +39,11 @@ typedef struct _evo_job {
 individual best;
 
 // Function declarations
-
-individual magic(tspcfg *cfg);
-
-individual **initializePopulations(int npops, int popsize, int indsize, unsigned int *seed);
+individual **initializePopulations(int npops, int popsize, int indsize, unsigned int *seed, double **costs);
 individual *newIndividual(individual *new, int indsize, unsigned int *seed);
 void shuffle(unsigned char *array, int size, unsigned int *seed);
-void evalPopFitness(individual *population, int popsize, int indsize);
-double evalIndFitness(individual *ind, int indsize);
+void evalPopFitness(individual *population, int popsize, int indsize, double **costs);
+double evalIndFitness(individual *ind, int indsize, double **costs);
 individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg);
 
 void popEvolutionThreadPoolWrapper(void *_job);
@@ -78,64 +57,25 @@ int fit_cmp(const void *ls, const void *rs);
 int fit_cmp_ptr(const void *ls, const void *rs);
 
 void free_the_world(individual **world, int npops, int popsize);
-void printIndividual(individual *ind, int indsize);
 
-
-int main(int argc, char **argv){
-
-    // Read configuration
-    tspcfg config = argParse(argc, argv);
-
-    //read input
-    int i,j, N;
-    double cost;
-    scanf("%d", &N);
-    while (scanf("%d %d %lf", &i, &j, &cost ) != EOF) {
-        costs[i][j] = cost;
-    }
-
-    // Parameterization
-    config.indsize = N;
-
-    // Other helpder structures
-    config.thread_pool = pool_new(MULTI_THREAD, popEvolutionThreadPoolWrapper);
-    pool_start(config.thread_pool);
-
-    config.rand_seeds = (unsigned int *)malloc(MULTI_THREAD * sizeof(unsigned int));
-    for (int i = 0; i < MULTI_THREAD; i++) {
-        config.rand_seeds[i] = clock() % INT_MAX;
-    }
-
-    // call tsp evo
-    individual best = magic(&config);
-
-    // Free up the thread pool resources
-    pool_stop(config.thread_pool);
-    pool_del(config.thread_pool);
-
-    printf("Best: ");
-    printIndividual(&best, N);
-#ifdef V
-    printf("Total evo calls: %lu\n", popevo_count);
-#endif
-
-    free(best.perm);
-
-    return 0;
-}
 
 /**
  * Evolutionary meta-heuristic algorithm for evolving solutions to the TSP problem.
  */
-individual magic(tspcfg *cfg) {
+individual tspevo(tspcfg *cfg) {
 
-    // Measure time for statistics
-    struct timeval tval_start, tval_finish, tval_whole_result;
-    gettimeofday(&tval_start, NULL);
+    // Initialize helpder structures
+    cfg->thread_pool = pool_new(cfg->nthreads, popEvolutionThreadPoolWrapper);
+    pool_start(cfg->thread_pool);
+
+    cfg->rand_seeds = (unsigned int *)malloc(cfg->nthreads * sizeof(unsigned int));
+    for (int i = 0; i < cfg->nthreads; i++) {
+        cfg->rand_seeds[i] = clock() % INT_MAX;
+    }
 
     //generate initial populations
-    individual **populations = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize, cfg->rand_seeds);
-    individual **nextpops = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize, cfg->rand_seeds);
+    individual **populations = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize, cfg->rand_seeds, cfg->costs);
+    individual **nextpops = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize, cfg->rand_seeds, cfg->costs);
 
     // Do the generational magic
     individual best = multi_thread_generations_loop(populations, nextpops, cfg);
@@ -144,10 +84,9 @@ individual magic(tspcfg *cfg) {
     free_the_world(populations, cfg->npops, cfg->popsize);
     free_the_world(nextpops, cfg->npops, cfg->popsize);
 
-    // Time statistics
-    gettimeofday(&tval_finish, NULL);
-    timersub(&tval_finish, &tval_start, &tval_whole_result);
-    printf("Took: %ld.%06ld seconds\n", (long int)tval_whole_result.tv_sec, (long int)tval_whole_result.tv_usec);
+    // Free up the thread pool resources
+    pool_stop(cfg->thread_pool);
+    pool_del(cfg->thread_pool);
 
     return best;
 }
@@ -155,7 +94,7 @@ individual magic(tspcfg *cfg) {
 /**
  * Allocates memory for npops * popsize individuals initialized randomly.
  */
-individual **initializePopulations(int npops, int popsize, int indsize, unsigned int *seed) {
+individual **initializePopulations(int npops, int popsize, int indsize, unsigned int *seed, double **costs) {
     individual **populations = (individual **)malloc(npops * sizeof(individual *));
 
     for (int p = 0; p < npops; p++) {
@@ -165,7 +104,7 @@ individual **initializePopulations(int npops, int popsize, int indsize, unsigned
             newIndividual(&(population[i]), indsize, seed);
         }
 
-        evalPopFitness(population, popsize, indsize);
+        evalPopFitness(population, popsize, indsize, costs);
         populations[p] = population;
     }
 
@@ -213,10 +152,10 @@ void shuffle(unsigned char *array, int size, unsigned int *seed) {
  * @param popsize The size of the population to evaluate
  * @param indsize The size of the individual.
  */
-void evalPopFitness(individual *population, int popsize, int indsize) {
+void evalPopFitness(individual *population, int popsize, int indsize, double **costs) {
     int i;
     for (i = 0; i < popsize; i++) {
-        population[i].fitness = evalIndFitness(&(population[i]), indsize);
+        population[i].fitness = evalIndFitness(&(population[i]), indsize, costs);
     }
 }
 
@@ -226,7 +165,7 @@ void evalPopFitness(individual *population, int popsize, int indsize) {
  * @param ind The individual to evaluate.
  * @param indsize The size of the individual.
  */
-double evalIndFitness(individual *ind, int indsize) {
+double evalIndFitness(individual *ind, int indsize, double **costs) {
     int i = 0;
     double fitness = 0;
 
@@ -301,7 +240,7 @@ void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg, 
     }
 
     // Eval the fitness of the population
-    evalPopFitness(nextpop, cfg->popsize, cfg->indsize);
+    evalPopFitness(nextpop, cfg->popsize, cfg->indsize, cfg->costs);
 
 #ifdef V
     gettimeofday(&tval_finish, NULL);
@@ -520,7 +459,7 @@ void printIndividual(individual *ind, int indsize) {
 
 individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg) {
     
-    int bulk_size = MIGRATIONS;
+    int bulk_size = cfg->migrations;
     evo_job jobs[cfg->npops];
 
     int step = ceil((float)cfg->npops / (float)cfg->thread_pool->num_threads);
@@ -552,7 +491,7 @@ individual multi_thread_generations_loop(individual **populations, individual **
         // Bulk insert the population evolution jobs to avoid thread context switching
         for (int p = 0; p < cfg->npops; p += step) {
             jobs[p].cfg = cfg;
-            jobs[p].seed = cfg->rand_seeds + (p % MULTI_THREAD);
+            jobs[p].seed = cfg->rand_seeds + (p % cfg->nthreads);
             jobs[p].populations = populations;
             jobs[p].nextpops = nextpops;
             jobs[p].start = p;
@@ -598,7 +537,7 @@ individual multi_thread_generations_loop(individual **populations, individual **
 void popEvolutionThreadPoolWrapper(void *_job) {
 
     evo_job *job = (evo_job *)_job;
-    int bulk_size = MIGRATIONS;
+    int bulk_size = job->cfg->migrations;
 
     for (int bulk = 0; bulk < bulk_size; bulk++) {
         for (int i = job->start; i < job->end && i < job->cfg->npops; i++) {

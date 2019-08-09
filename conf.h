@@ -12,6 +12,7 @@ typedef struct _tspcfg {
     int indsize;
 
     // How much machinery for heavy lifting?
+    int nthreads;
     int popsize;
     int npops;
     int ngens;
@@ -30,12 +31,14 @@ typedef struct _tspcfg {
 
     // How much recombination of the individuals?
     double crossover_rate;
+    int migrations;
     double population_migration_rate;
     double individual_migration_rate;
 
     // Other, helper structures
     worker_pool *thread_pool;
     unsigned int *rand_seeds;
+    double **costs;
 } tspcfg;
 
 

@@ -12,11 +12,13 @@ binary = "./t"
 ninputs = 4
 run_count = 2
 
+nthreads = 4
 popsize = 150
 npops = 16
 ngens = 1000
 tournament_size = 5
 maxgrad0count = 100
+migrations = 50
 
 def generate_input(N, file):
     with open(file, 'w') as f:
@@ -80,11 +82,13 @@ def mutate_individual(ind):
 def write_individual(ind):
     makedirs(ind["#rundir"])
     with open("%s/config" % ind["#rundir"], 'w') as f:
+        f.write("nthreads %d\n" % nthreads)
         f.write("popsize %d\n" % popsize)
         f.write("npops %d\n" % npops)
         f.write("ngens %d\n" % ngens)
         f.write("tournament_size %d\n" % tournament_size)
         f.write("maxgrad0count %d\n" % maxgrad0count)
+        f.write("migrations %d\n" % migrations)
         f.write("\n".join(["{0} {1}".format(i, ind[i]) for i in ind]))
 
 def evaluate_ind(ind):
