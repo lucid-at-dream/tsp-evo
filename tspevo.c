@@ -19,6 +19,8 @@ TODO:
 #include <unistd.h>
 #include <limits.h>
 
+#define V
+
 volatile unsigned long popevo_count;
 
 // Data structures
@@ -68,14 +70,14 @@ individual tspevo(tspcfg *cfg) {
     cfg->thread_pool = pool_new(cfg->nthreads, popEvolutionThreadPoolWrapper);
     pool_start(cfg->thread_pool);
 
-    cfg->rand_seeds = (unsigned int *)malloc(cfg->nthreads * sizeof(unsigned int));
-    for (int i = 0; i < cfg->nthreads; i++) {
+    cfg->rand_seeds = (unsigned int *)malloc((cfg->nthreads + 1) * sizeof(unsigned int));
+    for (int i = 0; i < cfg->nthreads + 1; i++) {
         cfg->rand_seeds[i] = clock() % INT_MAX;
     }
 
     //generate initial populations
-    individual **populations = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize, cfg->rand_seeds, cfg->costs);
-    individual **nextpops = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize, cfg->rand_seeds, cfg->costs);
+    individual **populations = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize, cfg->rand_seeds + cfg->nthreads, cfg->costs);
+    individual **nextpops = initializePopulations(cfg->npops, cfg->popsize, cfg->indsize, cfg->rand_seeds + cfg->nthreads, cfg->costs);
 
     // Do the generational magic
     individual best = multi_thread_generations_loop(populations, nextpops, cfg);
@@ -500,7 +502,6 @@ individual multi_thread_generations_loop(individual **populations, individual **
         }
         pool_await_empty_queue(cfg->thread_pool);
 
-#ifdef MIGRATIONS
         // Have migrations every MIGRATIONS generations
         // Migrations become more likely as the number of generations increases, proportional to the logarithm of the number of generations.
         for (int p1 = 0; p1 < cfg->npops; p1++) {
@@ -521,7 +522,6 @@ individual multi_thread_generations_loop(individual **populations, individual **
                 }
             }
         }
-#endif
 
 #ifdef V
         gettimeofday(&tval_bulk_finish, NULL);
