@@ -6,14 +6,14 @@ from os import system
 from numpy import mean
 from time import time
 
-prob_size = 100
+prob_size = 50
 inputs_folder = 'in'
 binary = "./t"
 ninputs = 4
 run_count = 2
 
-popsize = 100
-npops = 10
+popsize = 150
+npops = 16
 ngens = 1000
 tournament_size = 5
 maxgrad0count = 100
