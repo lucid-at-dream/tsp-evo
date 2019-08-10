@@ -4,20 +4,20 @@ TODO:
     If the line from P[i] to P[i+1] crosses the line from P[j] to P[j+1],
     Swap the values of P[i+1] and P[j+1]
 
- > Use a "optimum mutation" operation:
-    Pick a subsequence from the permutation with N >= 3, and replace it with it's optimal solution.
-
  > Investigate other crossover mechanisms
 */
 #include "tspevo.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <sys/time.h>
-#include "worker_pool.h"
 #include <unistd.h>
 #include <limits.h>
+
+#include "worker_pool.h"
+#include "tsp.h"
 
 #define V
 
@@ -40,21 +40,32 @@ typedef struct _evo_job {
 
 individual best;
 
-// Function declarations
+/* Function declarations */
+
+// Random solution generation
 individual **initializePopulations(int npops, int popsize, int indsize, unsigned int *seed, double **costs);
 individual *newIndividual(individual *new, int indsize, unsigned int *seed);
 void shuffle(unsigned short *array, int size, unsigned int *seed);
+
+// Fitness evaluation
 void evalPopFitness(individual *population, int popsize, int indsize, double **costs);
 double evalIndFitness(individual *ind, int indsize, double **costs);
-individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg);
 
+// Population evolution
+individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg);
 void popEvolutionThreadPoolWrapper(void *_job);
 void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg, unsigned int *seed);
 
+// Sex and Recombination
 couple tournament(int tsize, individual *population, int popsize, unsigned int *seed);
 void crossOver(couple parents, individual *maria, individual *zezinho, int indsize);
+
+// Mutations
 void swapMutation(individual *ind, int indsize, unsigned int *seed);
 void subsequenceInversionMutation(individual *ind, int indsize, unsigned int *seed);
+void optimalSolutionMutation(individual *ind, tspcfg *cfg, unsigned int *seed);
+
+// Fitness comparison
 int fit_cmp(const void *ls, const void *rs);
 int fit_cmp_ptr(const void *ls, const void *rs);
 
@@ -232,6 +243,10 @@ void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg, 
         if ((rand_r(seed) % 10000)/10000.0 <= cfg->inversion_mutation_rate) {
             subsequenceInversionMutation(&(nextpop[i]), cfg->indsize, seed);
         }
+
+        if ((rand_r(seed) % 10000)/10000.0 <= 0.005) {
+            optimalSolutionMutation(&(nextpop[i]), cfg, seed);
+        }
     }
 
     // Replace some individuals randomly
@@ -392,6 +407,17 @@ void subsequenceInversionMutation(individual *ind, int indsize, unsigned int *se
         ind->perm[i1] = ind->perm[i2];
         ind->perm[i2] = tmp;
     }
+}
+
+/**
+ * Replaces a subsequence of the individual with the optimal solution for that subsequence.
+ */
+void optimalSolutionMutation(individual *ind, tspcfg *cfg, unsigned int *seed) {
+
+    int range = 7;
+    int start = rand_r(seed) % (cfg->indsize - range);
+
+    optimal_path(range, ind->perm + start, cfg->costs);
 }
 
 /**
