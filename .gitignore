@@ -1,0 +1,7 @@
+*.in
+in
+in*
+t
+opt
+runs
+.vscode

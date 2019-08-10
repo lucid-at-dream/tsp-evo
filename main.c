@@ -15,6 +15,8 @@ int main(int argc, char **argv){
     double cost;
     scanf("%d", &N);
 
+    int M = 50; // The number of vehicles in the fleet.
+
     double **costs = (double **)malloc(N * sizeof(double *));
     for (int i = 0; i < N; i++) {
         costs[i] = (double *)malloc(N * sizeof(double));
@@ -26,6 +28,7 @@ int main(int argc, char **argv){
 
     // problem configuration
     config.indsize = N;
+    config.fleetsize = M;
     config.costs = costs;
 
     // Measure time for statistics

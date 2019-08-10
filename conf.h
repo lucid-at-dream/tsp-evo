@@ -10,6 +10,7 @@
 typedef struct _tspcfg {
     // What's the size of the problem?
     int indsize;
+    int fleetsize;
 
     // How much machinery for heavy lifting?
     int nthreads;
