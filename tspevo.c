@@ -43,7 +43,7 @@ individual best;
 // Function declarations
 individual **initializePopulations(int npops, int popsize, int indsize, unsigned int *seed, double **costs);
 individual *newIndividual(individual *new, int indsize, unsigned int *seed);
-void shuffle(unsigned char *array, int size, unsigned int *seed);
+void shuffle(unsigned short *array, int size, unsigned int *seed);
 void evalPopFitness(individual *population, int popsize, int indsize, double **costs);
 double evalIndFitness(individual *ind, int indsize, double **costs);
 individual multi_thread_generations_loop(individual **populations, individual **nextpops, tspcfg *cfg);
@@ -122,7 +122,7 @@ individual **initializePopulations(int npops, int popsize, int indsize, unsigned
 individual *newIndividual(individual *new, int indsize, unsigned int *seed) {
     
     new->fitness = 0;
-    new->perm = (unsigned char *)malloc(indsize * sizeof(unsigned char));
+    new->perm = (unsigned short *)malloc(indsize * sizeof(unsigned short));
 
     for (int i = 0; i < indsize; i++) {
         new->perm[i] = i;
@@ -136,7 +136,7 @@ individual *newIndividual(individual *new, int indsize, unsigned int *seed) {
 /**
  * Makes 2*N swaps on an array for randomization
  */
-void shuffle(unsigned char *array, int size, unsigned int *seed) {
+void shuffle(unsigned short *array, int size, unsigned int *seed) {
     int tmp, i1, i2;
     for (int i = 0; i < 2 * size; i++) {
         i1 = rand_r(seed) % size;
@@ -215,9 +215,9 @@ void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg, 
                 nextpop[i].perm[j] = parents.a->perm[j];
 
             if (i + 1 < cfg->popsize) {
-                nextpop[i+1].fitness = parents.a->fitness;
+                nextpop[i+1].fitness = parents.b->fitness;
                 for (int j = 0; j < cfg->indsize; j++)
-                    nextpop[i+1].perm[j] = parents.a->perm[j];
+                    nextpop[i+1].perm[j] = parents.b->perm[j];
             }
         }
     }
@@ -313,7 +313,7 @@ void crossOver(couple parents, individual *maria, individual *zezinho, int indsi
     char used[indsize];
     memset(used, 0, sizeof(char) * indsize);
 
-    unsigned char mothermap[indsize];
+    unsigned short mothermap[indsize];
 
     for (int i = 0; i < indsize; i++) {
         mothermap[parents.b->perm[i]] = i;
@@ -469,7 +469,7 @@ individual multi_thread_generations_loop(individual **populations, individual **
 
     // Keep a reference of the best individual ever.
     individual best;
-    best.perm = (unsigned char *)malloc(cfg->indsize * sizeof(unsigned char));
+    best.perm = (unsigned short *)malloc(cfg->indsize * sizeof(unsigned short));
     best.fitness = populations[0][0].fitness;
 
     // generations loop

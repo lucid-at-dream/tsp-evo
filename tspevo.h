@@ -3,7 +3,7 @@
 #include "conf.h"
 
 typedef struct _individual {
-    unsigned char *perm;
+    unsigned short *perm;
     double fitness;
 } individual;
 

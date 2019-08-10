@@ -1,7 +1,7 @@
 
 CFLAGS=-Wall -lm -lpthread
-COPT=-O2 -mtune=native
-#CDEB=-Og -g
+#COPT=-O2 -mtune=native
+CDEB=-Og -g
 CCFLAGS=${CFLAGS} ${COPT} ${CDEB}
 
 
