@@ -25,6 +25,7 @@ typedef struct _tspcfg {
     double swap_mutation_rate;
     double inversion_mutation_rate;
     double individual_replacement_rate;
+    double optimal_mutation_rate;
 
     // How much not randomness?
     int elitesize;

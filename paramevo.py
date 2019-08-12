@@ -34,6 +34,7 @@ def generate_individual():
     ind = {
         "swap_mutation_rate": random(),
         "inversion_mutation_rate": random(),
+        "optimal_mutation_rate": random(),
         "individual_replacement_rate": random(),
         "elitesize": randint(1, min(20, popsize)),
         "crossover_rate": random(),

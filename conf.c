@@ -123,6 +123,9 @@ void parseCfgLine(tspcfg *config, char *line) {
     else if (strcmp(line, "inversion_mutation_rate") == 0) {
         config->inversion_mutation_rate = atof(value);
     }
+    else if (strcmp(line, "optimal_mutation_rate") == 0) {
+        config->optimal_mutation_rate = atof(value);
+    }
     else if (strcmp(line, "individual_replacement_rate") == 0) {
         config->individual_replacement_rate = atof(value);
     }

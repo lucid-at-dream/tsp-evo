@@ -244,7 +244,7 @@ void evolvePopulation(individual *population, individual *nextpop, tspcfg *cfg, 
             subsequenceInversionMutation(&(nextpop[i]), cfg->indsize, seed);
         }
 
-        if ((rand_r(seed) % 10000)/10000.0 <= 0.005) {
+        if ((rand_r(seed) % 10000)/10000.0 <= cfg->optimal_mutation_rate) {
             optimalSolutionMutation(&(nextpop[i]), cfg, seed);
         }
     }
@@ -291,13 +291,31 @@ couple tournament(int tsize, individual *population, int popsize, unsigned int *
     }
 
     double max_val = 0;
-    for (int i = 1; i < tsize; i++) {
+    for (int i = 0; i < tsize; i++) {
         max_val += individuals[i]->fitness;
     }
 
-    int i1 = rand_r(seed) % tsize;
-    int i2 = rand_r(seed) % tsize;
-    while (i2 == i1) i2 = rand_r(seed) % tsize;
+    double c1 = (rand_r(seed) % 1000) / 1000.0 * max_val;
+    double c2 = (rand_r(seed) % 1000) / 1000.0 * max_val;
+
+    int i1 = -1, i2 = -1;
+    double current_ceil = 0;
+    for (int i = 0; i < tsize && (i1 < 0 || i2 < 0); i++) {
+        current_ceil += individuals[i]->fitness;
+
+        if (i1 < 0 && c1 <= current_ceil) {
+            i1 = i;
+            if (i2 < 0 && c2 <= current_ceil) {
+                i2 = (i + 1) % tsize;
+            }
+        } else if (i2 < 0 && c2 <= current_ceil) {
+            i2 = i;
+        }
+    }
+
+    if (i1 == i2) {
+        printf("ERROR!!\n");
+    }
 
     couple parents;
     parents.a = individuals[i1];
