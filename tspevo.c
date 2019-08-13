@@ -19,8 +19,6 @@ TODO:
 #include "worker_pool.h"
 #include "tsp.h"
 
-#define V
-
 volatile unsigned long popevo_count;
 
 // Data structures

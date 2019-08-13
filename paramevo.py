@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+from logger import logger
 from os import makedirs
 from random import randint, random, choice, sample
 from os import system
@@ -9,13 +10,13 @@ from time import time
 prob_size = 50
 inputs_folder = 'in'
 binary = "./t"
-ninputs = 4
+ninputs = 3
 run_count = 2
 
 nthreads = 4
-popsize = 150
-npops = 16
-ngens = 1000
+popsize = 100
+npops = 12
+ngens = 500
 tournament_size = 5
 maxgrad0count = 100
 migrations = 50
@@ -119,26 +120,29 @@ while count < ninputs:
 _popsize = 50
 _ngens = 1000
 _elite = 2
-_crossover_rate = 0.7
+_crossover_rate = 0.5
 _tournament_size = 3
-_mutation_rate = 0.3
+_mutation_rate = 0.5
 
 # Generate initial population
 start = time()
 
 pop = [generate_individual() for i in range(_popsize)]
+count = 0
 for ind in pop:
+    count += 1
+    logger.info("Evaluating individual %d of %d." % (count, len(pop)))
     evaluate_ind(ind)
 pop = sorted(pop, key=lambda x: x['#fitness'])
 
 stop = time()
-print("Generation took %.2lf seconds" % (stop - start))
+logger.info("Generation took %.2lf seconds" % (stop - start))
 
 for gen in range(_ngens):
 
     start = time()
 
-    print("[%.3d] Current best solution is %s with fitness %lf followed by %s" % (
+    logger.info("[%.3d] Current best solution is %s with fitness %lf followed by %s" % (
         gen,
         pop[0]['#rundir'],
         pop[0]['#fitness'],
@@ -163,7 +167,10 @@ for gen in range(_ngens):
             nextpop[-1] = mutate_individual(nextpop[-1])
 
     # Evalutation
+    count = 0
     for ind in nextpop:
+        count += 1
+        logger.info("Evaluating individual %d of %d." % (count, len(nextpop)))
         if "#fitness" not in ind:
             evaluate_ind(ind)
     
@@ -173,7 +180,7 @@ for gen in range(_ngens):
     pop = sorted(pop, key=lambda x: x['#fitness'])
 
     stop = time()
-    print("Generation took %.2lf seconds" % (stop - start))
+    logger.info("Generation took %.2lf seconds" % (stop - start))
 
 
 

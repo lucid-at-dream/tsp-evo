@@ -3,7 +3,7 @@
 from numpy import mean
 from os import listdir
 
-ninputs = 4
+ninputs = 3
 
 def get_ind(rundir):
     ind = {}
@@ -38,6 +38,6 @@ y = [i[1] for i in data]
 
 from matplotlib import pyplot as p
 p.title(field)
-p.plot(x, y)
+p.plot(x, y, '.')
 p.show()
 
