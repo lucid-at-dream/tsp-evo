@@ -27,6 +27,11 @@ typedef struct _couple {
     individual *b;
 } couple;
 
+typedef struct _population {
+    individual *ppl;
+    tspcfg params;
+} pop_t;
+
 typedef struct _evo_job {
     individual **populations;
     individual **nextpops;
@@ -38,7 +43,13 @@ typedef struct _evo_job {
 
 individual best;
 
-/* Function declarations */
+/* Local search / Gradient descent / Genetic Algorithm for population parameterization -- function declarations */
+// Mutation
+// Crossover
+// Parent selection
+// Evaluation
+
+/* Local search / Gradient descent / Genetic Algorithm for TSP -- function declarations */
 
 // Random solution generation
 individual **initializePopulations(int npops, int popsize, int indsize, unsigned int *seed, double **costs);
@@ -92,6 +103,7 @@ individual tspevo(tspcfg *cfg) {
     individual best = multi_thread_generations_loop(populations, nextpops, cfg);
 
     // Free all the allocated memory for easier mem leak validation.
+    free(cfg->rand_seeds);
     free_the_world(populations, cfg->npops, cfg->popsize);
     free_the_world(nextpops, cfg->npops, cfg->popsize);
 

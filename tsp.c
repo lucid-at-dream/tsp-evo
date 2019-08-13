@@ -48,6 +48,7 @@ void optimal_path(int N, unsigned short *nodes, double **costs) {
     }
 
     // Free allocated resources
+    free(tmp);
     free(lowerbounds);
     free(cfg.best.perm);
 }
@@ -107,9 +108,6 @@ void solve(problem *cfg, double *lowerbounds) {
 
 void tsp(int idx, double currentcost, unsigned short *currentperm, unsigned short *visited, problem *cfg, double *lowerbounds) {
 
-    if (currentcost + lowerbounds[cfg->N-idx-1] >= cfg->best.cost)
-        return;
-
     int i;
     if (idx == cfg->N) {
         if (currentcost < cfg->best.cost) {
@@ -118,6 +116,9 @@ void tsp(int idx, double currentcost, unsigned short *currentperm, unsigned shor
         }
         return;
     }
+
+    if (currentcost + lowerbounds[cfg->N-idx-1] >= cfg->best.cost)
+        return;
 
     for (i = 1; i < cfg->N; i++) {
         if (!visited[i]) {

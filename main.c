@@ -43,6 +43,11 @@ int main(int argc, char **argv){
 
     printf("Best: ");
     printIndividual(&best, N);
+
+    for (int i = 0; i < N; i++) {
+        free(costs[i]);
+    }
+    free(costs);
     free(best.perm);
 
     return 0;
